@@ -10,27 +10,41 @@ module.exports = (_, argv) => {
       filename: "assets/[name].[contenthash:8].js",
       chunkFilename: "assets/[name].[contenthash:8].chunk.js",
       clean: true,
-      publicPath: "/"
+      publicPath: "/",
     },
     devtool: production ? "source-map" : "eval-cheap-module-source-map",
     resolve: {
       extensions: [".tsx", ".ts", ".js"],
-      alias: { "@": path.resolve(__dirname, "src") }
+      alias: { "@": path.resolve(__dirname, "src") },
     },
     module: {
       rules: [
-        { test: /\.tsx?$/, use: "ts-loader", exclude: /node_modules/ },
-        { test: /\.s?css$/, use: ["style-loader", "css-loader", "sass-loader"] }
-      ]
+        {
+          test: /\.tsx?$/,
+          use: {
+            loader: "ts-loader",
+            options: { transpileOnly: true },
+          },
+          exclude: /node_modules/,
+        },
+        {
+          test: /\.s?css$/,
+          use: ["style-loader", "css-loader", "sass-loader"],
+        },
+      ],
     },
-    plugins: [new HtmlWebpackPlugin({ template: path.resolve(__dirname, "public/index.html") })],
+    plugins: [
+      new HtmlWebpackPlugin({
+        template: path.resolve(__dirname, "public/index.html"),
+      }),
+    ],
     optimization: { splitChunks: { chunks: "all" }, runtimeChunk: "single" },
     devServer: {
       port: 30401,
       historyApiFallback: true,
       hot: true,
       open: false,
-      client: { overlay: true }
-    }
+      client: { overlay: true },
+    },
   };
 };

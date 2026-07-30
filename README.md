@@ -13,13 +13,22 @@
 
 ## Introduction
 
-The Desk is a local-first React CMS built with React, TypeScript, React Router, TanStack Query, React Hook Form, and Zod.
+travel-audio-guide-react is a local-first React CMS built with React, TypeScript, React Router, TanStack Query, React Hook Form, and Zod.
 
-The project is inspired by the page-scoped Feature-Sliced Design approach used in `realworld-react-fsd`. It combines a maintainable frontend architecture with a practical editorial interface for creating, editing, previewing, publishing, duplicating, importing, and exporting articles.
+The project uses a page-scoped Feature-Sliced Design approach. It combines a maintainable frontend architecture with a practical editorial interface for creating, editing, previewing, publishing, duplicating, importing, and exporting articles.
 
 Article data is currently stored in the browser through `localStorage`. The storage implementation is isolated behind a Repository abstraction, allowing it to be replaced later with a Go API, an OpenAPI-generated Orval client, or another remote data source without significantly rewriting the page components.
 
 This project is intended for architectural practice, CMS prototyping, and technical demonstration.
+
+---
+
+## Preview
+
+<p align="left">
+  <img src="" width="160"/>
+  <img src="" width="160"/>
+</p>
 
 ---
 
