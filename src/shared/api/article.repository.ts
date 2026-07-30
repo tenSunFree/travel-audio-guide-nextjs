@@ -1,7 +1,7 @@
 import { articleSchema, type Article, type ArticleFormValues } from "./article.schema";
 import { formToArticleData } from "./article.mapper";
 
-const STORAGE_KEY = "react-cms-complete:articles:v2";
+const STORAGE_KEY = "travel-audio-guide-react:articles:v2";
 
 function now() { return new Date().toISOString(); }
 
