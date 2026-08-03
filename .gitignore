@@ -1,52 +1,86 @@
-# Dependencies
+# ============================================
+# dependencies
+# ============================================
 node_modules
 .pnp
 .pnp.js
-.yarn/install-state.gz
 
-# Build outputs
-dist
-build
-out
+# This project standardizes on npm. Keep only package-lock.json under version control,
+# and ignore other package manager lockfiles to prevent accidental use of the wrong tool
+# which could create conflicting lockfiles and inconsistent CI/local installs.
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+bun.lock
 
-# Testing
-coverage
-.nyc_output
+# ============================================
+# Next.js build output
+# ============================================
+.next/
+out/
+build/
+dist/
 
-# Environment variables
+# ============================================
+# testing
+# ============================================
+coverage/
+.nyc_output/
+
+# ============================================
+# environment variables
+# ============================================
+# The rule should be "deny all, then allow the example file" to avoid accidentally committing
+# a raw .env file. That could leak keys/API base URLs. Real values belong in .env.local
+# (maintained per environment and not committed).
 .env
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 !.env.example
 
-# Logs
+# ============================================
+# TypeScript
+# ============================================
+*.tsbuildinfo
+next-env.d.ts
+
+# ============================================
+# Vercel
+# ============================================
+.vercel
+
+# ============================================
+# logs / debug
+# ============================================
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
-*.log
 
-# Editor / IDE
-.idea/
+# ============================================
+# editor / IDE
+# Personal editor settings should not affect the whole team; however, allow sharing
+# recommended team settings in version control.
+# ============================================
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+.idea
+*.swp
+*.swo
 
-# OS files
+# ============================================
+# OS
+# ============================================
 .DS_Store
 Thumbs.db
-desktop.ini
+Desktop.ini
 
-# TypeScript
-*.tsbuildinfo
-
-# Cache
-.cache
-.eslintcache
-.parcel-cache
+# ============================================
+# misc
+# ============================================
+*.tgz
+.turbo
