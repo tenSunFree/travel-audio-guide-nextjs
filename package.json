@@ -1,17 +1,17 @@
 {
-  "name": "travel-audio-guide-react",
-  "version": "2.0.0",
+  "name": "travel-audio-guide-nextjs",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
-    "start": "webpack serve --mode development",
-    "build": "webpack --mode production",
-    "build:dev": "webpack --mode development",
+    "predev": "kill-port 30401",
+    "dev": "next dev -p 30401",
+    "build": "next build",
+    "start": "next start -p 30401",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "format": "prettier --write .",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -19,37 +19,28 @@
     "dompurify": "^3.2.6",
     "lucide-react": "^0.468.0",
     "marked": "^16.1.1",
+    "next": "^16.2.12",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.61.1",
-    "react-router-dom": "^7.7.1",
     "zod": "^4.0.14"
   },
   "devDependencies": {
-    "@eslint/js": "^9.32.0",
+    "@eslint/eslintrc": "^3.2.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@types/jest": "^30.0.0",
+    "@types/node": "^22.10.0",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
-    "css-loader": "^7.1.2",
     "eslint": "^9.32.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.20",
-    "globals": "^16.3.0",
-    "html-webpack-plugin": "^5.6.3",
+    "eslint-config-next": "^16.2.12",
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
+    "kill-port": "^2.0.1",
     "prettier": "^3.6.2",
     "sass": "^1.89.2",
-    "sass-loader": "^16.0.5",
-    "style-loader": "^4.0.0",
     "ts-jest": "^29.4.0",
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0",
-    "webpack": "^5.101.0",
-    "webpack-cli": "^6.0.1",
-    "webpack-dev-server": "^5.2.2"
+    "typescript": "^5.8.3"
   }
 }
