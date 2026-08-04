@@ -4,6 +4,6 @@ export function formatDate(value: string | null) {
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("zh-TW", {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(date);
 }

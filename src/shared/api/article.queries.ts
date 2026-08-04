@@ -8,10 +8,26 @@ export const articleKeys = {
   publishedList: () => [...articleKeys.lists(), "published"] as const,
   details: () => [...articleKeys.all, "detail"] as const,
   detail: (id: string) => [...articleKeys.details(), id] as const,
-  slug: (slug: string) => [...articleKeys.all, "slug", slug] as const
+  slug: (slug: string) => [...articleKeys.all, "slug", slug] as const,
 };
 
-export const articleListQuery = () => queryOptions({ queryKey: articleKeys.adminList(), queryFn: () => articleRepository.list() });
-export const publishedArticleListQuery = () => queryOptions({ queryKey: articleKeys.publishedList(), queryFn: () => articleRepository.listPublished() });
-export const articleDetailQuery = (id: string) => queryOptions({ queryKey: articleKeys.detail(id), queryFn: () => articleRepository.getById(id) });
-export const articleBySlugQuery = (slug: string) => queryOptions({ queryKey: articleKeys.slug(slug), queryFn: () => articleRepository.getPublishedBySlug(slug) });
+export const articleListQuery = () =>
+  queryOptions({
+    queryKey: articleKeys.adminList(),
+    queryFn: () => articleRepository.list(),
+  });
+export const publishedArticleListQuery = () =>
+  queryOptions({
+    queryKey: articleKeys.publishedList(),
+    queryFn: () => articleRepository.listPublished(),
+  });
+export const articleDetailQuery = (id: string) =>
+  queryOptions({
+    queryKey: articleKeys.detail(id),
+    queryFn: () => articleRepository.getById(id),
+  });
+export const articleBySlugQuery = (slug: string) =>
+  queryOptions({
+    queryKey: articleKeys.slug(slug),
+    queryFn: () => articleRepository.getPublishedBySlug(slug),
+  });
