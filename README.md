@@ -8,6 +8,7 @@
 [![Validation](https://img.shields.io/badge/Validation-Zod-3E67B1)](https://zod.dev)
 [![Testing](https://img.shields.io/badge/Testing-Jest%20%2B%20Testing%20Library-C21325?logo=jest&logoColor=white)](#testing)
 [![Storage](https://img.shields.io/badge/Storage-localStorage-7952B3)](#local-data-storage)
+[![CodeRabbit Reviews](https://img.shields.io/badge/Code%20Review-CodeRabbit-FF6B35)](https://coderabbit.ai)
 
 ---
 
