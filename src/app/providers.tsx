@@ -5,6 +5,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "@/shared/lib/query-client";
 import { articleKeys } from "@/shared/api/article.queries";
 import { STORAGE_KEY } from "@/shared/api/article.repository";
+import { productKeys } from "@/shared/api/product.queries";
+import { PRODUCT_STORAGE_KEY } from "@/shared/api/product.repository";
 
 export function Providers({ children }: { children: ReactNode }) {
   // useState ensures each browser tab creates its own QueryClient instance and instances are not shared between users.
@@ -18,10 +20,15 @@ export function Providers({ children }: { children: ReactNode }) {
       if (event.key === STORAGE_KEY) {
         void queryClient.invalidateQueries({ queryKey: articleKeys.all });
       }
+      if (event.key === PRODUCT_STORAGE_KEY) {
+        void queryClient.invalidateQueries({ queryKey: productKeys.all });
+      }
     }
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [queryClient]);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
 }

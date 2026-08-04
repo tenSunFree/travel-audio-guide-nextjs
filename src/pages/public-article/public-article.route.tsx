@@ -4,8 +4,12 @@ import { articleBySlugQuery } from "@/shared/api/article.queries";
 import { PublicArticlePage } from "./ui/public-article-page";
 export async function loader({ params }: LoaderFunctionArgs) {
   if (!params.slug) throw new Response("缺少網址代稱", { status: 400 });
-  const article = await queryClient.ensureQueryData(articleBySlugQuery(params.slug));
+  const article = await queryClient.ensureQueryData(
+    articleBySlugQuery(params.slug),
+  );
   if (!article) throw new Response("文章不存在或尚未發布", { status: 404 });
   return article;
 }
-export function Component() { return <PublicArticlePage/>; }
+export function Component() {
+  return <PublicArticlePage />;
+}

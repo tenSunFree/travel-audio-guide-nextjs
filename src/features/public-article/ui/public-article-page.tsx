@@ -32,7 +32,38 @@ export function PublicArticlePage({ slug }: { slug: string }) {
     meta.setAttribute("content", description);
   }, [article]);
 
-  if (isLoading || !article) return <main className="public-page"><p>載入中…</p></main>;
+  if (isLoading || !article)
+    return (
+      <main className="public-page">
+        <p>載入中…</p>
+      </main>
+    );
 
-  return <main className="public-page"><article className="public-article"><Link className="back-link" href="/articles">← 所有文章</Link><p className="publication">THE DESK JOURNAL</p><h1>{article.title}</h1><p className="lead">{article.excerpt}</p><div className="article-meta"><span>作者 {article.author}</span><span>發布於 {formatDate(article.publishedAt)}</span></div><div className="tag-row">{article.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="article-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(article.content) }}/></article></main>;
+  return (
+    <main className="public-page">
+      <article className="public-article">
+        <Link className="back-link" href="/articles">
+          ← 所有文章
+        </Link>
+        <p className="publication">THE DESK JOURNAL</p>
+        <h1>{article.title}</h1>
+        <p className="lead">{article.excerpt}</p>
+        <div className="article-meta">
+          <span>作者 {article.author}</span>
+          <span>發布於 {formatDate(article.publishedAt)}</span>
+        </div>
+        <div className="tag-row">
+          {article.tags.map((tag) => (
+            <span className="tag" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+        <div
+          className="article-content"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(article.content) }}
+        />
+      </article>
+    </main>
+  );
 }

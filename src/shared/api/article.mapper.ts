@@ -11,7 +11,7 @@ export function articleToForm(article: Article): ArticleFormValues {
     tagsText: stringifyTags(article.tags),
     status: article.status,
     seoTitle: article.seoTitle,
-    seoDescription: article.seoDescription
+    seoDescription: article.seoDescription,
   };
 }
 
@@ -25,6 +25,6 @@ export function formToArticleData(values: ArticleFormValues) {
     tags: parseTags(values.tagsText),
     status: values.status,
     seoTitle: values.seoTitle || values.title,
-    seoDescription: values.seoDescription || values.excerpt
+    seoDescription: values.seoDescription || values.excerpt,
   };
 }
