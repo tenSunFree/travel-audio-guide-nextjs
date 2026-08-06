@@ -39,8 +39,8 @@ export const productFormSchema = z
     description: z.string().trim().max(300, "商品說明最多 300 個字"),
     category: productCategorySchema,
     imageUrl: z.string().trim().url("請輸入有效的圖片網址"),
-    minPrice: z.coerce.number().min(0, "最低價格不可小於 0"),
-    maxPrice: z.coerce.number().min(0, "最高價格不可小於 0"),
+    minPrice: z.number().min(0, "最低價格不可小於 0"),
+    maxPrice: z.number().min(0, "最高價格不可小於 0"),
     status: productStatusSchema,
     featured: z.boolean(),
   })

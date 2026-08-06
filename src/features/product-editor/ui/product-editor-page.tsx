@@ -165,13 +165,21 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 label="最低價格"
                 error={form.formState.errors.minPrice?.message}
               >
-                <input type="number" min="0" {...form.register("minPrice")} />
+                <input
+                  type="number"
+                  min="0"
+                  {...form.register("minPrice", { valueAsNumber: true })}
+                />
               </Field>
               <Field
                 label="最高價格"
                 error={form.formState.errors.maxPrice?.message}
               >
-                <input type="number" min="0" {...form.register("maxPrice")} />
+                <input
+                  type="number"
+                  min="0"
+                  {...form.register("maxPrice", { valueAsNumber: true })}
+                />
               </Field>
             </div>
             <label className="checkbox-field">

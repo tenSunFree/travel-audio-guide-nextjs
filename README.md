@@ -299,19 +299,19 @@ http://localhost:30401/travel-items
 
 ## Main Routes
 
-| Route | Description |
-| --- | --- |
-| `/` | Redirects to `/admin/articles` |
-| `/admin/articles` | Article administration list |
-| `/admin/articles/new` | Create a new article |
-| `/admin/articles/[articleId]/edit` | Edit an article |
-| `/admin/articles/[articleId]/preview` | Preview an article |
-| `/articles` | Public published-article index |
-| `/articles/[slug]` | Public article page |
-| `/admin/products` | Product administration list |
-| `/admin/products/new` | Create a new travel item |
-| `/admin/products/[productId]/edit` | Edit a travel item |
-| `/travel-items` | Public travel-item listing |
+| Route                                 | Description                    |
+| ------------------------------------- | ------------------------------ |
+| `/`                                   | Redirects to `/admin/articles` |
+| `/admin/articles`                     | Article administration list    |
+| `/admin/articles/new`                 | Create a new article           |
+| `/admin/articles/[articleId]/edit`    | Edit an article                |
+| `/admin/articles/[articleId]/preview` | Preview an article             |
+| `/articles`                           | Public published-article index |
+| `/articles/[slug]`                    | Public article page            |
+| `/admin/products`                     | Product administration list    |
+| `/admin/products/new`                 | Create a new travel item       |
+| `/admin/products/[productId]/edit`    | Edit a travel item             |
+| `/travel-items`                       | Public travel-item listing     |
 
 The product slug is currently reserved for a future product-detail route. There is no `/travel-items/[slug]` page yet.
 

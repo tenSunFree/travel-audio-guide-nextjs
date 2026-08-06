@@ -9,9 +9,12 @@
     "start": "next start -p 30401",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "format": "prettier --write ."
+    "test:coverage": "jest --coverage --runInBand",
+    "ci": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
