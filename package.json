@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "kill-port 30401",
-    "dev": "next dev -p 30401",
+    "dev": "next dev -H 0.0.0.0 -p 30401",
     "build": "next build",
     "start": "next start -p 30401",
     "typecheck": "tsc --noEmit",
@@ -26,6 +26,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.61.1",
+    "server-only": "^0.0.1",
     "zod": "^4.0.14"
   },
   "devDependencies": {

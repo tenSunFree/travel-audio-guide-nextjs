@@ -1,28 +1,30 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Save } from "lucide-react";
+import { ExternalLink, ImagePlus, Save } from "lucide-react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { productDetailQuery, productKeys } from "@/shared/api/product.queries";
 import { productRepository } from "@/shared/api/product.repository";
 import {
   productFormSchema,
+  type ProductFormInput,
   type ProductFormValues,
 } from "@/shared/api/product.schema";
+import { imageFileToDataUrl } from "@/shared/lib/image-file-to-data-url";
 import { slugify } from "@/shared/lib/slugify";
 import { PageHeader } from "@/shared/ui/page-header";
 
-const emptyValues: ProductFormValues = {
+const emptyValues: ProductFormInput = {
   name: "",
   slug: "",
   description: "",
   category: "旅遊小物",
   imageUrl: "",
-  minPrice: 0,
-  maxPrice: 0,
+  minPrice: "",
+  maxPrice: "",
   status: "draft",
   featured: false,
 };
@@ -31,11 +33,14 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const slugTouched = useRef(isEditing);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: product, isLoading } = useQuery({
     ...productDetailQuery(productId ?? ""),
     enabled: isEditing,
   });
-  const form = useForm<ProductFormValues>({
+  const form = useForm<ProductFormInput, unknown, ProductFormValues>({
     resolver: zodResolver(productFormSchema),
     defaultValues: emptyValues,
   });
@@ -84,6 +89,8 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
       </section>
     );
   const imageUrl = form.watch("imageUrl");
+  const minPrice = form.watch("minPrice");
+  const maxPrice = form.watch("maxPrice");
   return (
     <section>
       <PageHeader
@@ -132,10 +139,55 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
               />
             </Field>
             <Field
-              label="商品圖片網址"
-              error={form.formState.errors.imageUrl?.message}
+              label="商品圖片"
+              hint="可以直接上傳照片，或貼上圖片網址"
+              error={
+                form.formState.errors.imageUrl?.message ??
+                imageError ??
+                undefined
+              }
             >
-              <input {...form.register("imageUrl")} placeholder="https://..." />
+              <div className="image-upload-row">
+                <button
+                  type="button"
+                  className="button"
+                  disabled={isProcessingImage}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImagePlus size={16} />
+                  {isProcessingImage ? "處理中…" : "上傳圖片"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setImageError(null);
+                    setIsProcessingImage(true);
+                    try {
+                      const dataUrl = await imageFileToDataUrl(file);
+                      form.setValue("imageUrl", dataUrl, {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      });
+                    } catch (err) {
+                      setImageError(
+                        err instanceof Error ? err.message : "圖片處理失敗",
+                      );
+                    } finally {
+                      setIsProcessingImage(false);
+                    }
+                  }}
+                />
+                <input
+                  {...form.register("imageUrl")}
+                  placeholder="或貼上 https://... 圖片網址"
+                />
+              </div>
             </Field>
             <Field
               label="商品說明"
@@ -168,7 +220,9 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 <input
                   type="number"
                   min="0"
-                  {...form.register("minPrice", { valueAsNumber: true })}
+                  inputMode="numeric"
+                  placeholder="請輸入最低價格"
+                  {...form.register("minPrice")}
                 />
               </Field>
               <Field
@@ -178,7 +232,9 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 <input
                   type="number"
                   min="0"
-                  {...form.register("maxPrice", { valueAsNumber: true })}
+                  inputMode="numeric"
+                  placeholder="請輸入最高價格"
+                  {...form.register("maxPrice")}
                 />
               </Field>
             </div>
@@ -215,7 +271,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
               <img src={imageUrl} alt="商品預覽" />
             ) : (
               <div className="product-image-placeholder">
-                請輸入商品圖片網址
+                請上傳圖片或輸入商品圖片網址
               </div>
             )}
             <span className="product-category-chip">
@@ -224,7 +280,9 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
             <h1>{form.watch("name") || "未命名商品"}</h1>
             <p>{form.watch("description") || "商品說明會顯示在這裡。"}</p>
             <strong className="product-price">
-              NT${form.watch("minPrice")} ～ NT${form.watch("maxPrice")}
+              {minPrice !== "" && maxPrice !== ""
+                ? `NT$${minPrice} ～ NT$${maxPrice}`
+                : "價格尚未設定"}
             </strong>
           </aside>
         </div>
