@@ -39,11 +39,7 @@ const priceSchema = z
     const trimmed = value.trim();
     return trimmed === "" ? Number.NaN : Number(trimmed);
   })
-  .pipe(
-    z
-      .number({ error: "請輸入價格" })
-      .min(0, "價格不可小於 0"),
-  );
+  .pipe(z.number({ error: "請輸入價格" }).min(0, "價格不可小於 0"));
 
 export const productFormSchema = z
   .object({

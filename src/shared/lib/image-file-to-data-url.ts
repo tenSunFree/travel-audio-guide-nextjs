@@ -23,8 +23,11 @@ export function imageFileToDataUrl(file: File): Promise<string> {
           1,
           MAX_DIMENSION / Math.max(img.width, img.height),
         );
-        const width = Math.round(img.width * scale);
-        const height = Math.round(img.height * scale);
+        // Images with extreme aspect ratios (e.g., 10000x1) may be rounded to 0 after scaling.
+        // Use Math.max(1, ...) to ensure the output canvas is at least 1x1 to avoid generating invalid
+        // 0-size canvases (toDataURL will return an empty string instead of a normal image).
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
 
         const canvas = document.createElement("canvas");
         canvas.width = width;
@@ -35,8 +38,6 @@ export function imageFileToDataUrl(file: File): Promise<string> {
           return;
         }
 
-        // JPEG has no transparency — fill the canvas with white first to
-        // prevent transparent areas in PNGs from turning black after conversion.
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
