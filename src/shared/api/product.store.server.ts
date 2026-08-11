@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   productSchema,
@@ -30,43 +30,51 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
-async function ensureDataFile(): Promise<void> {
+async function readProductsUnsafe(): Promise<Product[]> {
   await mkdir(DATA_DIRECTORY, { recursive: true });
+
+  let raw: string;
   try {
-    await readFile(PRODUCTS_FILE, "utf8");
+    raw = await readFile(PRODUCTS_FILE, "utf8");
   } catch (error) {
     const code =
       error instanceof Error && "code" in error ? error.code : undefined;
     if (code !== "ENOENT") throw error;
+    // File does not exist yet: create an empty file and return an empty
+    // array immediately (no need to read the file again).
     await writeFile(PRODUCTS_FILE, "[]\n", "utf8");
+    return [];
   }
-}
 
-async function readProductsUnsafe(): Promise<Product[]> {
-  await ensureDataFile();
-  const raw = await readFile(PRODUCTS_FILE, "utf8");
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("商品資料檔案不是有效的 JSON");
+    throw new Error("商品資料檔案格式錯誤，不是合法的 JSON");
   }
   const result = productSchema.array().safeParse(parsed);
   if (!result.success) {
     console.error("Invalid products.json:", result.error.flatten());
-    throw new Error("商品資料格式錯誤");
+    throw new Error("商品資料檔案內容不符合格式");
   }
   return result.data;
 }
 
 async function writeProductsUnsafe(products: Product[]): Promise<void> {
   const validated = productSchema.array().parse(products);
-  await ensureDataFile();
-  await writeFile(
-    PRODUCTS_FILE,
-    `${JSON.stringify(validated, null, 2)}\n`,
-    "utf8",
+  await mkdir(DATA_DIRECTORY, { recursive: true });
+
+  // First write to a temporary file, then rename it to the final filename
+  // after the write completes. Renaming within the same filesystem is an
+  // atomic operation which prevents producing a partial products.json if
+  // the process crashes during write and would otherwise cause subsequent
+  // reads to fail.
+  const tempFile = path.join(
+    DATA_DIRECTORY,
+    `.products.${process.pid}.${Date.now()}.tmp`,
   );
+  await writeFile(tempFile, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+  await rename(tempFile, PRODUCTS_FILE);
 }
 
 function assertUniqueSlug(
