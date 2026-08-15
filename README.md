@@ -7,16 +7,24 @@
 [![State](https://img.shields.io/badge/Server%20State-TanStack%20Query-FF4154?logo=reactquery&logoColor=white)](https://tanstack.com/query)
 [![Validation](https://img.shields.io/badge/Validation-Zod-3E67B1)](https://zod.dev)
 [![Testing](https://img.shields.io/badge/Testing-Jest%20%2B%20Testing%20Library-C21325?logo=jest&logoColor=white)](#testing)
-[![Storage](https://img.shields.io/badge/Storage-localStorage-7952B3)](#local-data-storage)
+[![Articles Storage](https://img.shields.io/badge/Articles-localStorage-7952B3)](#data-storage)
+[![Products Storage](https://img.shields.io/badge/Products-Server%20JSON%20API-2E8B57)](#data-storage)
+[![CI](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml/badge.svg)](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs/graph/badge.svg)](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs)
 [![CodeRabbit Reviews](https://img.shields.io/badge/Code%20Review-CodeRabbit-FF6B35)](https://coderabbit.ai)
 
 ---
 
 ## Introduction
 
-`travel-audio-guide-nextjs` is a local-first travel content and product catalog prototype built with Next.js App Router, React, TypeScript, TanStack Query, React Hook Form, and Zod.
+`travel-audio-guide-nextjs` is a travel content and product catalog prototype built with Next.js App Router, React, TypeScript, TanStack Query, React Hook Form, and Zod.
 
-The project currently contains two primary domains:
+The project currently uses a hybrid persistence model while the planned Go/PostgreSQL backend is still in development:
+
+- **Article data** is stored in browser `localStorage`.
+- **Product data** is persisted server-side, through Next.js API routes to a JSON file store.
+
+The project contains two primary domains:
 
 - **Article CMS** — create, edit, preview, and publish travel-related articles.
 - **Travel Item Management** — create, edit, and publish travel-related products to a public storefront-style listing page.
@@ -48,16 +56,19 @@ Planned backend stack:
 - JWT authentication
 - Docker
 
-Until backend integration is completed, article and product data are stored in browser `localStorage`.
+Until backend integration is completed:
+
+- **Article data** is stored in browser `localStorage`.
+- **Product data** is stored server-side as a JSON file (`data/products.json`) and served through internal Next.js API routes (`/api/products`).
 
 Storage access is isolated behind repository abstractions:
 
 - `ArticleRepository`
 - `ProductRepository`
 
-This separation allows the local storage implementations to be replaced with Go API clients later without rewriting the feature components.
+This separation allows both the browser `localStorage` implementation (articles) and the current server-side JSON file implementation (products) to be replaced with Go API clients later without rewriting the feature components.
 
-The current public pages are client-rendered because browser `localStorage` is unavailable during server rendering. After migrating data to the Go API, the public pages can be converted to Server Components or server-side data fetching, with real `generateMetadata()` support.
+Public article pages are still client-rendered because browser `localStorage` is unavailable during server rendering. The public product listing page is also client-rendered today; because product data already lives on the server, it is a smaller step to convert it to a Server Component once the Go API is connected.
 
 ---
 
@@ -114,31 +125,43 @@ The current public pages are client-rendered because browser `localStorage` is u
 
 - Create, edit, and delete travel-related products.
 - Save products as drafts or publish them.
-- Configure product name, slug, image URL, description, category, and price range.
+- Configure product name, slug, image, description, category, and price range.
+- Upload a product image directly, or paste an image URL.
 - Mark selected products as featured for priority display.
 - Automatically track creation and update timestamps.
 - Search products by name, slug, category, or description.
 - Filter products by draft or published status.
 - Display product category, price range, status, update time, and featured state in the administration table.
 - Open the public travel-item page directly from the administration interface.
+- Persist product data on the server so it is shared across devices and browsers, instead of being tied to a single browser's `localStorage`.
+
+### Product Image Upload
+
+- Upload a product image directly from the editor, or paste an image URL.
+- Automatically resize uploaded images client-side (longest edge capped at 1000px).
+- Automatically compress uploaded images to JPEG (quality 0.82) before storing.
+- Fill transparent PNG backgrounds with white before conversion, since JPEG has no alpha channel.
+- Reject SVG uploads and images with unusable dimensions.
+- Store the resulting image as a `data:image/jpeg;...` URL alongside the rest of the product record.
 
 ### Product Validation
 
 - Require a product name between 2 and 100 characters.
 - Require a URL slug between 2 and 120 characters.
 - Restrict slugs to lowercase letters, numbers, and hyphens.
-- Reject duplicate product slugs.
-- Require a valid image URL.
+- Reject duplicate product slugs, both on the client and on the server.
+- Require a valid image (uploaded image or a valid image URL).
 - Limit product descriptions to 300 characters.
 - Prevent negative prices.
 - Require the maximum price to be greater than or equal to the minimum price.
-- Validate all product forms and stored records with Zod.
+- Leave price inputs empty by default instead of defaulting to `0`, so the user is required to enter a value explicitly.
+- Validate all product forms and stored records with Zod, both on the client (form submission) and on the server (API routes).
 
 ### Public Travel Item Page
 
 - Display published products at `/travel-items`.
 - Automatically reflect products published from the administration interface.
-- Seed the browser with example products on first use.
+- Seed the server with example products on first use.
 - Search products by name, description, or category.
 - Filter products by available category.
 - Sort products by featured priority.
@@ -160,50 +183,66 @@ Article data currently supports JSON import and export:
 - Reject malformed records, duplicate IDs, and duplicate slugs.
 - Refresh TanStack Query caches after importing data.
 
-Product import and export have not yet been implemented.
+Product import and export have not yet been implemented as an administration feature. A one-time server-side import route was used to migrate existing browser data to the server and has since been removed.
 
-### Local Data Storage
+### Data Storage
 
-Article and product data are currently stored in browser `localStorage`, isolated behind repository abstractions.
+Article and product data currently use two different storage strategies.
 
-Current storage keys:
+**Articles** are stored in browser `localStorage`, isolated behind the `ArticleRepository` abstraction.
+
+Storage key:
 
 ```text
-travel-audio-guide-nextjs:products:v1
+travel-audio-guide-nextjs:articles:v1
 ```
 
 The article storage key is defined by `STORAGE_KEY` in `article.repository.ts`.
 
-This local-first approach provides:
+**Products** are stored server-side as a JSON file at `data/products.json`, accessed through `/api/products` and `/api/products/[productId]`, and isolated behind the `ProductRepository` abstraction. Writes are serialized within a single Node.js process and written atomically (write to a temp file, then rename) to avoid partial or corrupted data on crash.
 
-- Fast prototyping.
-- Persistence after page refresh.
-- No backend setup requirement.
-- A realistic asynchronous repository interface.
+`data/` is excluded from version control via `.gitignore`; product data is local to whichever machine or environment is running the server.
+
+This mixed local-first approach provides:
+
+- Fast prototyping without a database.
+- Persistence after page refresh (both articles and products).
+- Product data shared across devices and browsers on the same server, unlike the article's per-browser storage.
+- A realistic asynchronous repository interface for both domains.
 - Clear separation between UI features and storage implementations.
-- A straightforward migration path toward the future Go API.
+- A straightforward migration path toward the future Go API for both domains.
 
 Current limitations:
 
+**Articles** (browser `localStorage`):
+
 - Data is isolated to one browser and device.
 - There is no multi-user synchronization.
-- There is no authentication or server-side access control.
-- There is no revision history.
-- Public content cannot be server-rendered from browser-only storage.
-- There is no production-grade backup strategy.
 - Browser storage can be cleared by the user.
-- Product image availability depends on external URLs.
-- Public product and article data are not shared across users.
+- Public article data is not shared across users.
 
-These limitations can be addressed after the Go API and PostgreSQL persistence layer are connected.
+**Products** (server-side JSON file):
 
-### Cross-Tab Synchronization
+- Suitable for a single-instance development environment only; the in-process write queue does not protect against concurrent writes across multiple server processes or instances.
+- Storage is ephemeral on common serverless hosts; redeploying can delete `data/products.json` unless it is mounted on durable storage.
+- There is no authentication or server-side access control on the product API routes.
+- There is no revision history.
+- There is no production-grade backup strategy.
+- Product images are embedded as base64 data URLs directly in `data/products.json` rather than stored in dedicated object storage, which increases file size over time.
 
-The root `Providers` component listens for the browser's native `storage` event.
+**Both domains:**
 
-When article or product data changes in another browser tab, the corresponding TanStack Query cache is invalidated and refreshed automatically.
+- Product image availability (for pasted URLs) depends on external hosts remaining online.
+- These limitations can be addressed after the Go API and PostgreSQL persistence layer are connected.
 
-Mutations performed in the current tab invalidate their own query caches directly.
+### Cross-Tab and Cross-Device Synchronization
+
+Articles and products use different synchronization strategies, matching their different storage backends:
+
+- **Articles** — the root `Providers` component listens for the browser's native `storage` event. When article data changes in another browser tab, the corresponding TanStack Query cache is invalidated and refreshed automatically.
+- **Products** — since product data lives on the server, the admin product list and the public travel-item list poll the API every 30 seconds (paused while the browser tab is in the background) and refetch when the window regains focus, so changes made from another device or tab appear without a manual refresh.
+
+Mutations performed in the current tab invalidate their own query caches directly in both cases.
 
 ### User Experience
 
@@ -214,7 +253,7 @@ Mutations performed in the current tab invalidate their own query caches directl
 - Public product search, category filtering, and sorting.
 - Empty, loading, success, and error states.
 - Route-level `error.tsx` and `not-found.tsx` fallbacks.
-- Save-state feedback.
+- Save-state feedback, including a warning when there are unsaved changes.
 - Delete confirmation.
 - Live article and product previews while editing.
 
@@ -223,13 +262,14 @@ Mutations performed in the current tab invalidate their own query caches directl
 - Next.js App Router file-system routing for active application routes.
 - Page-scoped Feature-Sliced Design.
 - Separate feature modules for article and product domains.
-- Repository abstractions isolating `localStorage` from feature components.
+- Repository abstractions isolating `localStorage` (articles) and the server-side JSON store (products) from feature components.
 - `ArticleRepository` for article persistence.
-- `ProductRepository` for product persistence.
+- `ProductRepository` for product persistence, calling internal API routes.
+- Server-only product store (`product.store.server.ts`) performing serialized, atomic reads and writes to `data/products.json`.
 - TanStack Query for asynchronous state, caching, mutations, and invalidation.
 - Structured query keys for article and product list/detail views.
 - React Hook Form for editor form state.
-- Zod for form, persisted-record, and import validation.
+- Zod for form, persisted-record, and import validation, on both the client and the server.
 - Shared UI components for page headers and status badges.
 - Safe Markdown rendering through `marked` and DOMPurify.
 
@@ -237,7 +277,7 @@ Mutations performed in the current tab invalidate their own query caches directl
 
 ## Tech Stack
 
-- **Next.js 16 (App Router)** — file-system routing, layouts, and Server/Client Component boundaries.
+- **Next.js 16 (App Router)** — file-system routing, layouts, Server/Client Component boundaries, and Route Handlers for the product API.
 - **React 19** — component model for the public site and administration interface.
 - **TypeScript 5** — static types across routes, schemas, repositories, forms, query options, and UI.
 - **TanStack Query 5** — cache and asynchronous state management for article and product lists, details, and mutations.
@@ -248,8 +288,10 @@ Mutations performed in the current tab invalidate their own query caches directl
 - **Lucide React** — administration and storefront icons.
 - **Sass** — global styling and responsive layouts.
 - **Jest 30 + Testing Library** — utility and component test foundation through `next/jest`.
-- **ESLint 9** — flat configuration with `eslint-config-next`.
+- **ESLint 9** — flat configuration with `eslint-config-next`, run directly via the ESLint CLI (Next.js 16 removed the `next lint` command).
 - **Prettier 3** — source formatting.
+- **GitHub Actions** — CI running format, lint, typecheck, test coverage, and build on every push and pull request.
+- **Codecov** — test coverage reporting.
 
 ---
 
@@ -259,6 +301,18 @@ Mutations performed in the current tab invalidate their own query caches directl
 - npm: bundled with Node.js.
 - Next.js: `16.x`.
 - React: `19.x`.
+
+### Local Environment Variables
+
+Copy `.env.example` to `.env.local` and fill in values as needed. `.env.local` is excluded by `.gitignore` and should not be committed.
+
+```text
+DEV_ALLOWED_ORIGINS=192.168.0.49
+```
+
+`DEV_ALLOWED_ORIGINS` is a comma-separated list of hostnames or LAN IP addresses. It is read by `next.config.mjs` and passed to Next.js's `allowedDevOrigins` option, allowing devices on the same network (for example, a phone on the same Wi-Fi) to reach the development server without cross-origin warnings. This variable is optional; leave it unset if you only develop against `localhost`.
+
+`npm run dev` binds the development server to `0.0.0.0`, making it reachable from other devices on the local network. The product API routes do not currently require authentication, so treat LAN access as a development convenience rather than a secure deployment.
 
 ---
 
@@ -315,19 +369,34 @@ http://localhost:30401/travel-items
 
 The product slug is currently reserved for a future product-detail route. There is no `/travel-items/[slug]` page yet.
 
+### API Routes
+
+| Route                        | Method   | Description                                                     |
+| ----------------------------- | -------- | ----------------------------------------------------------------- |
+| `/api/products`              | `GET`    | List all products, or published-only with `?status=published`   |
+| `/api/products`              | `POST`   | Create a product                                                 |
+| `/api/products/[productId]`  | `GET`    | Get a single product by id                                       |
+| `/api/products/[productId]`  | `PUT`    | Update a product                                                 |
+| `/api/products/[productId]`  | `DELETE` | Delete a product                                                 |
+
+All product routes read from and write to `data/products.json` on the server and are validated with Zod. These routes currently have no authentication and should not be exposed to an untrusted network without adding access control.
+
 ---
 
 ## Useful Commands
 
 ```bash
-npm run dev         # Stop port 30401 first, then start the development server
-npm run build       # Create a production build in .next/
-npm run start       # Run the production build on port 30401
-npm run typecheck   # Run TypeScript checking without emitting files
-npm run lint        # Run ESLint
-npm run format      # Format the project with Prettier
-npm test            # Run Jest serially
-npm run test:watch  # Run Jest in watch mode
+npm run dev            # Stop port 30401 first, then start the development server
+npm run build          # Create a production build in .next/
+npm run start          # Run the production build on port 30401
+npm run typecheck      # Run TypeScript checking without emitting files
+npm run lint           # Run ESLint directly (next lint was removed in Next.js 16)
+npm run format         # Format the project with Prettier
+npm run format:check   # Check formatting without writing changes (used in CI)
+npm test               # Run Jest serially
+npm run test:watch     # Run Jest in watch mode
+npm run test:coverage  # Run Jest serially with coverage collection
+npm run ci             # Run format:check, lint, typecheck, test:coverage, and build in sequence
 ```
 
 ---
@@ -346,11 +415,12 @@ Tests still to be added:
 - Article import/export validation.
 - Product schema validation.
 - Product repository behavior.
+- Product API route behavior (slug conflicts, validation errors, not-found handling).
 - Duplicate product-slug rejection.
 - Product price-range validation.
 - Published-product filtering.
 - Featured-product sorting.
-- Product editor interactions.
+- Product editor interactions, including image upload.
 - Product administration filtering.
 - Public storefront search and sorting.
 
@@ -359,6 +429,27 @@ Run tests with:
 ```bash
 npm test
 ```
+
+Run tests with coverage (used in CI, uploaded to Codecov):
+
+```bash
+npm run test:coverage
+```
+
+---
+
+## Continuous Integration
+
+Every push to `main` and every pull request runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that performs:
+
+1. `npm run format:check` — Prettier formatting check.
+2. `npm run lint` — ESLint.
+3. `npm run typecheck` — TypeScript checking.
+4. `npm run test:coverage` — Jest with coverage collection.
+5. Coverage upload to Codecov.
+6. `npm run build` — production build verification.
+
+Pull requests are additionally reviewed automatically by CodeRabbit.
 
 ---
 
@@ -380,10 +471,13 @@ Article editor
 
 ```text
 Product editor
-  → React Hook Form + Zod validation
+  → React Hook Form + Zod validation (client)
   → ProductRepository
-  → localStorage
-  → TanStack Query invalidation
+  → /api/products or /api/products/[productId]
+  → Zod validation (server)
+  → product.store.server.ts (serialized, atomic read/write)
+  → data/products.json
+  → TanStack Query invalidation + polling
   → publishedProductListQuery
   → /travel-items
 ```
@@ -396,22 +490,24 @@ Only products with `status: "published"` are returned to the public travel-item 
 
 Planned or reasonable next steps include:
 
-- Replace browser repositories with Go API clients.
+- Replace browser and server-file repositories with Go API clients.
 - Persist articles and products in PostgreSQL.
 - Add JWT-based administration authentication.
 - Add role-based access control.
+- Add authentication or another access-control mechanism to the product API routes before exposing them beyond local development.
+- Store uploaded product images in dedicated object storage instead of embedding base64 data URLs in `data/products.json`.
 - Convert public pages to server-rendered data fetching.
 - Add `generateMetadata()` for server-generated SEO metadata.
 - Add Open Graph and social-sharing metadata.
 - Add product-detail pages at `/travel-items/[slug]`.
-- Add product image upload instead of URL-only input.
-- Add product import and export.
+- Add administration-facing product import and export.
 - Add pagination for large article and product collections.
 - Add real inquiry-cart behavior.
 - Add favorites persistence.
 - Add language and currency support.
-- Add repository, schema, and UI tests.
-- Add CI checks for linting, type checking, tests, and build verification.
+- Add repository, schema, and UI tests, including for the product API routes.
+- Migrate article storage to the server as well, for consistency with products.
+- Add CI coverage thresholds and PR-level coverage reporting through Codecov.
 
 ---
 
@@ -485,6 +581,11 @@ src/
 │  │     └─ [productId]/
 │  │        └─ edit/
 │  │           └─ page.tsx
+│  ├─ api/
+│  │  └─ products/
+│  │     ├─ route.ts
+│  │     └─ [productId]/
+│  │        └─ route.ts
 │  ├─ articles/
 │  │  ├─ page.tsx
 │  │  └─ [slug]/
@@ -522,9 +623,12 @@ src/
 │  │  ├─ article.schema.ts
 │  │  ├─ product.queries.ts
 │  │  ├─ product.repository.ts
-│  │  └─ product.schema.ts
+│  │  ├─ product.schema.ts
+│  │  └─ product.store.server.ts
 │  ├─ lib/
 │  │  ├─ format-date.ts
+│  │  ├─ generate-uuid.ts
+│  │  ├─ image-file-to-data-url.ts
 │  │  ├─ markdown.ts
 │  │  ├─ query-client.ts
 │  │  ├─ slugify.ts
