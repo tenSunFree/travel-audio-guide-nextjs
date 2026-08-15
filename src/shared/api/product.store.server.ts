@@ -12,6 +12,13 @@ import {
 const DATA_DIRECTORY = path.join(process.cwd(), "data");
 const PRODUCTS_FILE = path.join(DATA_DIRECTORY, "products.json");
 
+export class ProductSlugConflictError extends Error {
+  constructor() {
+    super("此商品網址代稱已被使用");
+    this.name = "ProductSlugConflictError";
+  }
+}
+
 /**
  * Serialize JSON file operations within the same Node.js process
  * to avoid race conditions where two requests (for example from a phone
@@ -40,8 +47,6 @@ async function readProductsUnsafe(): Promise<Product[]> {
     const code =
       error instanceof Error && "code" in error ? error.code : undefined;
     if (code !== "ENOENT") throw error;
-    // File does not exist yet: create an empty file and return an empty
-    // array immediately (no need to read the file again).
     await writeFile(PRODUCTS_FILE, "[]\n", "utf8");
     return [];
   }
@@ -64,11 +69,6 @@ async function writeProductsUnsafe(products: Product[]): Promise<void> {
   const validated = productSchema.array().parse(products);
   await mkdir(DATA_DIRECTORY, { recursive: true });
 
-  // First write to a temporary file, then rename it to the final filename
-  // after the write completes. Renaming within the same filesystem is an
-  // atomic operation which prevents producing a partial products.json if
-  // the process crashes during write and would otherwise cause subsequent
-  // reads to fail.
   const tempFile = path.join(
     DATA_DIRECTORY,
     `.products.${process.pid}.${Date.now()}.tmp`,
@@ -85,7 +85,7 @@ function assertUniqueSlug(
   const duplicated = products.some(
     (product) => product.slug === slug && product.id !== ignoredId,
   );
-  if (duplicated) throw new Error("此商品網址代稱已被使用");
+  if (duplicated) throw new ProductSlugConflictError();
 }
 
 export const productStore = {
@@ -166,11 +166,6 @@ export const productStore = {
     });
   },
 
-  /**
-   * For migrating localStorage data to the server only.
-   * After the migration is complete, remove the `src/app/api/products/import`
-   * route to avoid leaving a public endpoint that could overwrite all products.
-   */
   replaceAll(products: Product[]): Promise<Product[]> {
     return serialize(async () => {
       const validated = productSchema.array().parse(products);

@@ -1,5 +1,8 @@
 import { productFormSchema } from "@/shared/api/product.schema";
-import { productStore } from "@/shared/api/product.store.server";
+import {
+  ProductSlugConflictError,
+  productStore,
+} from "@/shared/api/product.store.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +38,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(product, { status: 201 });
   } catch (error) {
     console.error("POST /api/products failed:", error);
-    const message = error instanceof Error ? error.message : "新增商品失敗";
-    const status = message === "此商品網址代稱已被使用" ? 409 : 500;
-    return Response.json({ message }, { status });
+    if (error instanceof ProductSlugConflictError) {
+      return Response.json({ message: error.message }, { status: 409 });
+    }
+    return Response.json({ message: "新增商品失敗" }, { status: 500 });
   }
 }

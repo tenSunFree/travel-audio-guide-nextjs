@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { productRepository } from "./product.repository";
 
-const PRODUCT_REFRESH_INTERVAL = 5_000;
+const PRODUCT_REFRESH_INTERVAL = 30_000;
 
 export const productKeys = {
   all: ["products"] as const,
@@ -16,6 +16,7 @@ export const productListQuery = () =>
     queryFn: () => productRepository.list(),
     staleTime: 0,
     refetchInterval: PRODUCT_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
@@ -25,6 +26,7 @@ export const publishedProductListQuery = () =>
     queryFn: () => productRepository.listPublished(),
     staleTime: 0,
     refetchInterval: PRODUCT_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 

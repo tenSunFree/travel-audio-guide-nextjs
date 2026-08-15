@@ -28,6 +28,7 @@ const emptyValues: ProductFormInput = {
   status: "draft",
   featured: false,
 };
+
 export function ProductEditorPage({ productId }: { productId?: string }) {
   const isEditing = Boolean(productId);
   const router = useRouter();
@@ -36,16 +37,22 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
   const [imageError, setImageError] = useState<string | null>(null);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { data: product, isLoading } = useQuery({
     ...productDetailQuery(productId ?? ""),
     enabled: isEditing,
   });
+
   const form = useForm<ProductFormInput, unknown, ProductFormValues>({
     resolver: zodResolver(productFormSchema),
     defaultValues: emptyValues,
   });
+
   useEffect(() => {
-    if (product)
+    // Only apply server data when the form has not been modified by the user
+    // (i.e. not dirty). This prevents background polling or refetch-on-focus
+    // from overwriting the user's unsaved input.
+    if (product && !form.formState.isDirty) {
       form.reset({
         name: product.name,
         slug: product.slug,
@@ -57,10 +64,13 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
         status: product.status,
         featured: product.featured,
       });
+    }
   }, [product, form]);
+
   useEffect(() => {
     if (isEditing && !isLoading && product === null) notFound();
   }, [isEditing, isLoading, product]);
+
   const mutation = useMutation({
     mutationFn: (values: ProductFormValues) =>
       isEditing && productId
@@ -82,15 +92,20 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
       });
     },
   });
+
   if (isEditing && isLoading)
     return (
       <section>
         <PageHeader title="編輯商品" description="載入中…" />
       </section>
     );
+
   const imageUrl = form.watch("imageUrl");
   const minPrice = form.watch("minPrice");
   const maxPrice = form.watch("maxPrice");
+  const imageFieldError =
+    form.formState.errors.imageUrl?.message ?? imageError ?? undefined;
+
   return (
     <section>
       <PageHeader
@@ -124,6 +139,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 placeholder="例如：折疊迷你小圓扇"
               />
             </Field>
+
             <Field
               label="公開網址代稱"
               hint="僅供未來商品詳情頁使用"
@@ -138,15 +154,22 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 placeholder="foldable-mini-fan"
               />
             </Field>
-            <Field
-              label="商品圖片"
-              hint="可以直接上傳照片，或貼上圖片網址"
-              error={
-                form.formState.errors.imageUrl?.message ??
-                imageError ??
-                undefined
-              }
-            >
+
+            {/*
+              This section cannot use the shared Field component because that
+              component wraps children in a <label>. Here we have three
+              interactive controls at once: the upload button, the hidden file
+              input and the URL text input. A label will only associate with
+              the first labelable element (the button), so clicking the
+              "Product Image" text would incorrectly open the file picker and
+              screen readers would announce the wrong control. Use a plain
+              <div> and an explicit aria-label on the URL input instead.
+            */}
+            <div className="field">
+              <span className="field-heading">
+                <b>商品圖片</b>
+                <small>可以直接上傳照片，或貼上圖片網址</small>
+              </span>
               <div className="image-upload-row">
                 <button
                   type="button"
@@ -185,10 +208,15 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 />
                 <input
                   {...form.register("imageUrl")}
+                  aria-label="商品圖片網址"
                   placeholder="或貼上 https://... 圖片網址"
                 />
               </div>
-            </Field>
+              {imageFieldError && (
+                <span className="field-error">{imageFieldError}</span>
+              )}
+            </div>
+
             <Field
               label="商品說明"
               hint={`${form.watch("description").length}/300`}
@@ -196,6 +224,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
             >
               <textarea rows={4} {...form.register("description")} />
             </Field>
+
             <div className="two-columns">
               <Field label="商品分類">
                 <select {...form.register("category")}>
@@ -212,6 +241,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 </select>
               </Field>
             </div>
+
             <div className="two-columns">
               <Field
                 label="最低價格"
@@ -238,6 +268,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 />
               </Field>
             </div>
+
             <label className="checkbox-field">
               <input type="checkbox" {...form.register("featured")} />
               <span>
@@ -245,12 +276,14 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                 <small>在前台排序時優先顯示</small>
               </span>
             </label>
+
             {mutation.error && (
               <div className="alert error">{mutation.error.message}</div>
             )}
             {mutation.isSuccess && !form.formState.isDirty && (
               <div className="alert success">商品已儲存。</div>
             )}
+
             <div className="form-actions">
               <span>
                 {form.formState.isDirty ? "有尚未儲存的變更" : "內容已同步"}
@@ -265,6 +298,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
               </button>
             </div>
           </div>
+
           <aside className="card preview-card product-admin-preview">
             <div className="preview-label">PRODUCT PREVIEW</div>
             {imageUrl ? (
@@ -290,6 +324,7 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
     </section>
   );
 }
+
 function Field({
   label,
   hint,
