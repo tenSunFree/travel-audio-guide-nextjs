@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# scripts/hooks/pre-push
+#
+# Runs the full CI pipeline locally before pushing, so failures are caught
+# on your machine before reaching GitHub Actions:
+#   format:check -> lint -> typecheck -> test:coverage -> build
+# (same steps as .github/workflows/ci.yml and `npm run ci`)
+#
+# This cannot guarantee CI will always pass — local (often Windows) and
+# CI (Ubuntu) environments can still differ in line endings, filesystem
+# case sensitivity, or Node version — but it catches most issues early.
+#
+# Install: bash scripts/setup-hooks.sh
+# Bypass (not recommended): git push --no-verify
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo ""
+echo "pre-push: running full CI pipeline (npm run ci)..."
+echo ""
+
+if npm run ci; then
+    echo ""
+    echo "pre-push: All checks passed."
+    exit 0
+else
+    echo ""
+    echo "pre-push: CI checks failed, push aborted."
+    echo "Fix the issues above, or use 'git push --no-verify' to skip it (not recommended)."
+    exit 1
+fi

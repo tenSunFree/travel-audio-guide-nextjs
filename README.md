@@ -17,9 +17,11 @@
 
 ## Introduction
 
-`travel-audio-guide-nextjs` is a travel content and product catalog prototype built with Next.js App Router, React, TypeScript, TanStack Query, React Hook Form, and Zod.
+`travel-audio-guide-nextjs` is a travel content and product catalog prototype built with Next.js App
+Router, React, TypeScript, TanStack Query, React Hook Form, and Zod.
 
-The project currently uses a hybrid persistence model while the planned Go/PostgreSQL backend is still in development:
+The project currently uses a hybrid persistence model while the planned Go/PostgreSQL backend is
+still in development:
 
 - **Article data** is stored in browser `localStorage`.
 - **Product data** is persisted server-side, through Next.js API routes to a JSON file store.
@@ -27,24 +29,29 @@ The project currently uses a hybrid persistence model while the planned Go/Postg
 The project contains two primary domains:
 
 - **Article CMS** — create, edit, preview, and publish travel-related articles.
-- **Travel Item Management** — create, edit, and publish travel-related products to a public storefront-style listing page.
+- **Travel Item Management** — create, edit, and publish travel-related products to a public
+  storefront-style listing page.
 
-The public website and administration interface live inside a single Next.js project. Active application routing is handled through the App Router's file-system conventions under `src/app`.
+The public website and administration interface live inside a single Next.js project. Active
+application routing is handled through the App Router's file-system conventions under `src/app`.
 
-The project follows a page-scoped Feature-Sliced Design approach with a compact and practical layer set:
+The project follows a page-scoped Feature-Sliced Design approach with a compact and practical layer
+set:
 
 - `app`
 - `features`
 - `widgets`
 - `shared`
 
-This repository is intended for architectural practice, CMS prototyping, travel-platform development, and technical demonstration.
+This repository is intended for architectural practice, CMS prototyping, travel-platform
+development, and technical demonstration.
 
 ---
 
 ## Related Backend
 
-This project is designed to eventually connect to the `travel-audio-guide-go` backend for persistent article and product data.
+This project is designed to eventually connect to the `travel-audio-guide-go` backend for persistent
+article and product data.
 
 Planned backend stack:
 
@@ -59,16 +66,22 @@ Planned backend stack:
 Until backend integration is completed:
 
 - **Article data** is stored in browser `localStorage`.
-- **Product data** is stored server-side as a JSON file (`data/products.json`) and served through internal Next.js API routes (`/api/products`).
+- **Product data** is stored server-side as a JSON file (`data/products.json`) and served through
+  internal Next.js API routes (`/api/products`).
 
 Storage access is isolated behind repository abstractions:
 
 - `ArticleRepository`
 - `ProductRepository`
 
-This separation allows both the browser `localStorage` implementation (articles) and the current server-side JSON file implementation (products) to be replaced with Go API clients later without rewriting the feature components.
+This separation allows both the browser `localStorage` implementation (articles) and the current
+server-side JSON file implementation (products) to be replaced with Go API clients later without
+rewriting the feature components.
 
-Public article pages are still client-rendered because browser `localStorage` is unavailable during server rendering. The public product listing page is also client-rendered today; because product data already lives on the server, it is a smaller step to convert it to a Server Component once the Go API is connected.
+Public article pages are still client-rendered because browser `localStorage` is unavailable during
+server rendering. The public product listing page is also client-rendered today; because product
+data already lives on the server, it is a smaller step to convert it to a Server Component once the
+Go API is connected.
 
 ---
 
@@ -111,7 +124,8 @@ Public article pages are still client-rendered because browser `localStorage` is
 - Configure a custom SEO title and description per article.
 - Fall back to the article title and excerpt when custom SEO fields are empty.
 - Keep SEO fields in the article data model for future `generateMetadata()` integration.
-- Update browser metadata on the current client-rendered public article page as a temporary local-storage phase solution.
+- Update browser metadata on the current client-rendered public article page as a temporary
+  local-storage phase solution.
 
 ### Article Preview and Publishing
 
@@ -131,9 +145,11 @@ Public article pages are still client-rendered because browser `localStorage` is
 - Automatically track creation and update timestamps.
 - Search products by name, slug, category, or description.
 - Filter products by draft or published status.
-- Display product category, price range, status, update time, and featured state in the administration table.
+- Display product category, price range, status, update time, and featured state in the
+  administration table.
 - Open the public travel-item page directly from the administration interface.
-- Persist product data on the server so it is shared across devices and browsers, instead of being tied to a single browser's `localStorage`.
+- Persist product data on the server so it is shared across devices and browsers, instead of being
+  tied to a single browser's `localStorage`.
 
 ### Product Image Upload
 
@@ -154,8 +170,10 @@ Public article pages are still client-rendered because browser `localStorage` is
 - Limit product descriptions to 300 characters.
 - Prevent negative prices.
 - Require the maximum price to be greater than or equal to the minimum price.
-- Leave price inputs empty by default instead of defaulting to `0`, so the user is required to enter a value explicitly.
-- Validate all product forms and stored records with Zod, both on the client (form submission) and on the server (API routes).
+- Leave price inputs empty by default instead of defaulting to `0`, so the user is required to enter
+  a value explicitly.
+- Validate all product forms and stored records with Zod, both on the client (form submission) and
+  on the server (API routes).
 
 ### Public Travel Item Page
 
@@ -171,7 +189,8 @@ Public article pages are still client-rendered because browser `localStorage` is
 - Hide draft products from the public page.
 - Show an empty state with a link to create a product when no products match.
 
-> The cart, favorites, authentication, language switcher, currency switcher, and individual product-detail pages are currently presentation placeholders and are not complete commerce features.
+> The cart, favorites, authentication, language switcher, currency switcher, and individual
+> product-detail pages are currently presentation placeholders and are not complete commerce features.
 
 ### Import and Export
 
@@ -183,13 +202,16 @@ Article data currently supports JSON import and export:
 - Reject malformed records, duplicate IDs, and duplicate slugs.
 - Refresh TanStack Query caches after importing data.
 
-Product import and export have not yet been implemented as an administration feature. A one-time server-side import route was used to migrate existing browser data to the server and has since been removed.
+Product import and export have not yet been implemented as an administration feature. A one-time
+server-side import route was used to migrate existing browser data to the server and has since been
+removed.
 
 ### Data Storage
 
 Article and product data currently use two different storage strategies.
 
-**Articles** are stored in browser `localStorage`, isolated behind the `ArticleRepository` abstraction.
+**Articles** are stored in browser `localStorage`, isolated behind the `ArticleRepository`
+abstraction.
 
 Storage key:
 
@@ -199,15 +221,20 @@ travel-audio-guide-nextjs:articles:v1
 
 The article storage key is defined by `STORAGE_KEY` in `article.repository.ts`.
 
-**Products** are stored server-side as a JSON file at `data/products.json`, accessed through `/api/products` and `/api/products/[productId]`, and isolated behind the `ProductRepository` abstraction. Writes are serialized within a single Node.js process and written atomically (write to a temp file, then rename) to avoid partial or corrupted data on crash.
+**Products** are stored server-side as a JSON file at `data/products.json`, accessed through
+`/api/products` and `/api/products/[productId]`, and isolated behind the `ProductRepository`
+abstraction. Writes are serialized within a single Node.js process and written atomically (write to
+a temp file, then rename) to avoid partial or corrupted data on crash.
 
-`data/` is excluded from version control via `.gitignore`; product data is local to whichever machine or environment is running the server.
+`data/` is excluded from version control via `.gitignore`; product data is local to whichever
+machine or environment is running the server.
 
 This mixed local-first approach provides:
 
 - Fast prototyping without a database.
 - Persistence after page refresh (both articles and products).
-- Product data shared across devices and browsers on the same server, unlike the article's per-browser storage.
+- Product data shared across devices and browsers on the same server, unlike the article's
+  per-browser storage.
 - A realistic asynchronous repository interface for both domains.
 - Clear separation between UI features and storage implementations.
 - A straightforward migration path toward the future Go API for both domains.
@@ -223,24 +250,34 @@ Current limitations:
 
 **Products** (server-side JSON file):
 
-- Suitable for a single-instance development environment only; the in-process write queue does not protect against concurrent writes across multiple server processes or instances.
-- Storage is ephemeral on common serverless hosts; redeploying can delete `data/products.json` unless it is mounted on durable storage.
+- Suitable for a single-instance development environment only; the in-process write queue does not
+  protect against concurrent writes across multiple server processes or instances.
+- Storage is ephemeral on common serverless hosts; redeploying can delete `data/products.json`
+  unless it is mounted on durable storage.
 - There is no authentication or server-side access control on the product API routes.
 - There is no revision history.
 - There is no production-grade backup strategy.
-- Product images are embedded as base64 data URLs directly in `data/products.json` rather than stored in dedicated object storage, which increases file size over time.
+- Product images are embedded as base64 data URLs directly in `data/products.json` rather than
+  stored in dedicated object storage, which increases file size over time.
 
 **Both domains:**
 
 - Product image availability (for pasted URLs) depends on external hosts remaining online.
-- These limitations can be addressed after the Go API and PostgreSQL persistence layer are connected.
+- These limitations can be addressed after the Go API and PostgreSQL persistence layer are
+  connected.
 
 ### Cross-Tab and Cross-Device Synchronization
 
-Articles and products use different synchronization strategies, matching their different storage backends:
+Articles and products use different synchronization strategies, matching their different storage
+backends:
 
-- **Articles** — the root `Providers` component listens for the browser's native `storage` event. When article data changes in another browser tab, the corresponding TanStack Query cache is invalidated and refreshed automatically.
-- **Products** — since product data lives on the server, the admin product list and the public travel-item list poll the API every 30 seconds (paused while the browser tab is in the background) and refetch when the window regains focus, so changes made from another device or tab appear without a manual refresh.
+- **Articles** — the root `Providers` component listens for the browser's native `storage` event.
+  When article data changes in another browser tab, the corresponding TanStack Query cache is
+  invalidated and refreshed automatically.
+- **Products** — since product data lives on the server, the admin product list and the public
+  travel-item list poll the API every 30 seconds (paused while the browser tab is in the background)
+  and refetch when the window regains focus, so changes made from another device or tab appear
+  without a manual refresh.
 
 Mutations performed in the current tab invalidate their own query caches directly in both cases.
 
@@ -262,10 +299,12 @@ Mutations performed in the current tab invalidate their own query caches directl
 - Next.js App Router file-system routing for active application routes.
 - Page-scoped Feature-Sliced Design.
 - Separate feature modules for article and product domains.
-- Repository abstractions isolating `localStorage` (articles) and the server-side JSON store (products) from feature components.
+- Repository abstractions isolating `localStorage` (articles) and the server-side JSON store (
+  products) from feature components.
 - `ArticleRepository` for article persistence.
 - `ProductRepository` for product persistence, calling internal API routes.
-- Server-only product store (`product.store.server.ts`) performing serialized, atomic reads and writes to `data/products.json`.
+- Server-only product store (`product.store.server.ts`) performing serialized, atomic reads and
+  writes to `data/products.json`.
 - TanStack Query for asynchronous state, caching, mutations, and invalidation.
 - Structured query keys for article and product list/detail views.
 - React Hook Form for editor form state.
@@ -277,10 +316,13 @@ Mutations performed in the current tab invalidate their own query caches directl
 
 ## Tech Stack
 
-- **Next.js 16 (App Router)** — file-system routing, layouts, Server/Client Component boundaries, and Route Handlers for the product API.
+- **Next.js 16 (App Router)** — file-system routing, layouts, Server/Client Component boundaries,
+  and Route Handlers for the product API.
 - **React 19** — component model for the public site and administration interface.
-- **TypeScript 5** — static types across routes, schemas, repositories, forms, query options, and UI.
-- **TanStack Query 5** — cache and asynchronous state management for article and product lists, details, and mutations.
+- **TypeScript 5** — static types across routes, schemas, repositories, forms, query options, and
+  UI.
+- **TanStack Query 5** — cache and asynchronous state management for article and product lists,
+  details, and mutations.
 - **React Hook Form** — article and product editor form state with minimal re-renders.
 - **Zod 4** — runtime validation for forms, stored records, and imported article data.
 - **Marked** — Markdown-to-HTML conversion.
@@ -288,10 +330,14 @@ Mutations performed in the current tab invalidate their own query caches directl
 - **Lucide React** — administration and storefront icons.
 - **Sass** — global styling and responsive layouts.
 - **Jest 30 + Testing Library** — utility and component test foundation through `next/jest`.
-- **ESLint 9** — flat configuration with `eslint-config-next`, run directly via the ESLint CLI (Next.js 16 removed the `next lint` command).
+- **ESLint 9** — flat configuration with `eslint-config-next`, run directly via the ESLint CLI (
+  Next.js 16 removed the `next lint` command).
 - **Prettier 3** — source formatting.
-- **GitHub Actions** — CI running format, lint, typecheck, test coverage, and build on every push and pull request.
+- **GitHub Actions** — CI running format, lint, typecheck, test coverage, and build on every push
+  and pull request.
 - **Codecov** — test coverage reporting.
+- **Gitleaks (optional)** — local secret scanning in the pre-commit hook, with a lightweight regex
+  fallback when not installed.
 
 ---
 
@@ -304,24 +350,46 @@ Mutations performed in the current tab invalidate their own query caches directl
 
 ### Local Environment Variables
 
-Copy `.env.example` to `.env.local` and fill in values as needed. `.env.local` is excluded by `.gitignore` and should not be committed.
+Copy `.env.example` to `.env.local` and fill in values as needed. `.env.local` is excluded by
+`.gitignore` and should not be committed.
 
 ```text
 DEV_ALLOWED_ORIGINS=192.168.0.49
 ```
 
-`DEV_ALLOWED_ORIGINS` is a comma-separated list of hostnames or LAN IP addresses. It is read by `next.config.mjs` and passed to Next.js's `allowedDevOrigins` option, allowing devices on the same network (for example, a phone on the same Wi-Fi) to reach the development server without cross-origin warnings. This variable is optional; leave it unset if you only develop against `localhost`.
+`DEV_ALLOWED_ORIGINS` is a comma-separated list of hostnames or LAN IP addresses. It is read by
+`next.config.mjs` and passed to Next.js's `allowedDevOrigins` option, allowing devices on the same
+network (for example, a phone on the same Wi-Fi) to reach the development server without
+cross-origin warnings. This variable is optional; leave it unset if you only develop against
+`localhost`.
 
-`npm run dev` binds the development server to `0.0.0.0`, making it reachable from other devices on the local network. The product API routes do not currently require authentication, so treat LAN access as a development convenience rather than a secure deployment.
+`npm run dev` binds the development server to `0.0.0.0`, making it reachable from other devices on
+the local network. The product API routes do not currently require authentication, so treat LAN
+access as a development convenience rather than a secure deployment.
 
 ---
 
 ## Local Development
 
-Install dependencies and start the development server:
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Configure the recommended Git hooks (optional but recommended):
+
+```bash
+npm run hooks:install
+```
+
+This points Git at the version-controlled hooks in `scripts/hooks/` via `core.hooksPath`, so they
+run automatically without copying files into `.git/hooks/`. See [Git Hooks](#git-hooks) for what
+each hook checks.
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
@@ -331,7 +399,8 @@ Open:
 http://localhost:30401
 ```
 
-`npm run dev` runs the `predev` script first. The script uses `kill-port 30401` to stop a leftover process before starting the Next.js development server, preventing an `EADDRINUSE` error.
+`npm run dev` runs the `predev` script first. The script uses `kill-port 30401` to stop a leftover
+process before starting the Next.js development server, preventing an `EADDRINUSE` error.
 
 ### Administration Pages
 
@@ -367,19 +436,22 @@ http://localhost:30401/travel-items
 | `/admin/products/[productId]/edit`    | Edit a travel item             |
 | `/travel-items`                       | Public travel-item listing     |
 
-The product slug is currently reserved for a future product-detail route. There is no `/travel-items/[slug]` page yet.
+The product slug is currently reserved for a future product-detail route. There is no
+`/travel-items/[slug]` page yet.
 
 ### API Routes
 
-| Route                        | Method   | Description                                                     |
-| ----------------------------- | -------- | ----------------------------------------------------------------- |
-| `/api/products`              | `GET`    | List all products, or published-only with `?status=published`   |
-| `/api/products`              | `POST`   | Create a product                                                 |
-| `/api/products/[productId]`  | `GET`    | Get a single product by id                                       |
-| `/api/products/[productId]`  | `PUT`    | Update a product                                                 |
-| `/api/products/[productId]`  | `DELETE` | Delete a product                                                 |
+| Route                       | Method   | Description                                                   |
+| --------------------------- | -------- | ------------------------------------------------------------- |
+| `/api/products`             | `GET`    | List all products, or published-only with `?status=published` |
+| `/api/products`             | `POST`   | Create a product                                              |
+| `/api/products/[productId]` | `GET`    | Get a single product by id                                    |
+| `/api/products/[productId]` | `PUT`    | Update a product                                              |
+| `/api/products/[productId]` | `DELETE` | Delete a product                                              |
 
-All product routes read from and write to `data/products.json` on the server and are validated with Zod. These routes currently have no authentication and should not be exposed to an untrusted network without adding access control.
+All product routes read from and write to `data/products.json` on the server and are validated with
+Zod. These routes currently have no authentication and should not be exposed to an untrusted network
+without adding access control.
 
 ---
 
@@ -388,15 +460,16 @@ All product routes read from and write to `data/products.json` on the server and
 ```bash
 npm run dev            # Stop port 30401 first, then start the development server
 npm run build          # Create a production build in .next/
-npm run start          # Run the production build on port 30401
-npm run typecheck      # Run TypeScript checking without emitting files
-npm run lint           # Run ESLint directly (next lint was removed in Next.js 16)
-npm run format         # Format the project with Prettier
-npm run format:check   # Check formatting without writing changes (used in CI)
-npm test               # Run Jest serially
-npm run test:watch     # Run Jest in watch mode
-npm run test:coverage  # Run Jest serially with coverage collection
-npm run ci             # Run format:check, lint, typecheck, test:coverage, and build in sequence
+npm run start           # Run the production build on port 30401
+npm run typecheck       # Run TypeScript checking without emitting files
+npm run lint            # Run ESLint directly (next lint was removed in Next.js 16)
+npm run format          # Format the project with Prettier
+npm run format:check    # Check formatting without writing changes (used in CI)
+npm test                # Run Jest serially
+npm run test:watch      # Run Jest in watch mode
+npm run test:coverage   # Run Jest serially with coverage collection
+npm run ci              # Run format:check, lint, typecheck, test:coverage, and build in sequence
+npm run hooks:install   # Configure pre-commit and pre-push Git hooks
 ```
 
 ---
@@ -438,9 +511,37 @@ npm run test:coverage
 
 ---
 
+## Git Hooks
+
+Optional Git hooks under `scripts/hooks/` provide fast, local feedback before changes reach CI:
+
+- **`pre-commit`** — runs Prettier `--check` and ESLint on staged files only (not the whole
+  repository, to keep every commit fast), and scans staged changes for potential secrets
+  using [Gitleaks](https://github.com/gitleaks/gitleaks) if installed, or a lightweight regex
+  fallback if not.
+- **`pre-push`** — runs the full `npm run ci` pipeline (format check, lint, typecheck, test
+  coverage, build) before allowing a push.
+
+Install them once after cloning:
+
+```bash
+npm run hooks:install
+```
+
+This configures `core.hooksPath` to point at `scripts/hooks/`, so the hooks are executed directly
+from version control instead of being copied into `.git/hooks/`.
+
+Hooks can be skipped in an emergency with `git commit --no-verify` or `git push --no-verify`, but
+this is not recommended. Git hooks catch most issues early; they do not fully replace GitHub Actions
+CI, since local and CI environments can still differ (line endings, filesystem case sensitivity,
+Node version).
+
+---
+
 ## Continuous Integration
 
-Every push to `main` and every pull request runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that performs:
+Every push to `main` and every pull request runs a GitHub Actions workflow (
+`.github/workflows/ci.yml`) that performs:
 
 1. `npm run format:check` — Prettier formatting check.
 2. `npm run lint` — ESLint.
@@ -482,7 +583,8 @@ Product editor
   → /travel-items
 ```
 
-Only products with `status: "published"` are returned to the public travel-item page. Published products are initially ordered by featured priority and then by update time.
+Only products with `status: "published"` are returned to the public travel-item page. Published
+products are initially ordered by featured priority and then by update time.
 
 ---
 
@@ -494,8 +596,10 @@ Planned or reasonable next steps include:
 - Persist articles and products in PostgreSQL.
 - Add JWT-based administration authentication.
 - Add role-based access control.
-- Add authentication or another access-control mechanism to the product API routes before exposing them beyond local development.
-- Store uploaded product images in dedicated object storage instead of embedding base64 data URLs in `data/products.json`.
+- Add authentication or another access-control mechanism to the product API routes before exposing
+  them beyond local development.
+- Store uploaded product images in dedicated object storage instead of embedding base64 data URLs in
+  `data/products.json`.
 - Convert public pages to server-rendered data fetching.
 - Add `generateMetadata()` for server-generated SEO metadata.
 - Add Open Graph and social-sharing metadata.
@@ -515,25 +619,32 @@ Planned or reasonable next steps include:
 
 The active application uses Next.js App Router routes under `src/app`.
 
-The repository still contains files under `src/pages` and several earlier migration-related files such as `browser-router.tsx`, `route-error.tsx`, `styles.scss`, and `src/index.tsx`. These belong to the previous React Router + Webpack implementation and are not part of the intended App Router architecture.
+The repository still contains files under `src/pages` and several earlier migration-related files
+such as `browser-router.tsx`, `route-error.tsx`, `styles.scss`, and `src/index.tsx`. These belong to
+the previous React Router + Webpack implementation and are not part of the intended App Router
+architecture.
 
-After confirming that no required code depends on them, remove the legacy files to keep the project structure consistent and prevent stale imports or missing-package type errors.
+After confirming that no required code depends on them, remove the legacy files to keep the project
+structure consistent and prevent stale imports or missing-package type errors.
 
 ---
 
 ## Credits
 
-This project is inspired by the architectural ideas demonstrated in `realworld-react-fsd` and was migrated from an earlier React Router + Webpack SPA to Next.js App Router.
+This project is inspired by the architectural ideas demonstrated in `realworld-react-fsd` and was
+migrated from an earlier React Router + Webpack SPA to Next.js App Router.
 
 ---
 
 ## Notes
 
-Image resources are intended for learning and demonstration purposes only. Do not use third-party images commercially without confirming their licenses and usage rights.
+Image resources are intended for learning and demonstration purposes only. Do not use third-party
+images commercially without confirming their licenses and usage rights.
 
 If an asset infringes copyright or other rights, remove or replace it promptly.
 
-The public travel-item page is a visual catalog prototype. It does not currently process payments, submit inquiries, authenticate customers, or maintain a real shopping cart.
+The public travel-item page is a visual catalog prototype. It does not currently process payments,
+submit inquiries, authenticate customers, or maintain a real shopping cart.
 
 ---
 
@@ -555,6 +666,12 @@ Before publishing it as an open-source or commercial project:
 > This is a high-level overview of the current repository, not an exhaustive listing.
 
 ```text
+scripts/
+├─ hooks/
+│  ├─ pre-commit                             # Staged-file Prettier + ESLint + secret scan
+│  └─ pre-push                               # Full `npm run ci` pipeline
+└─ setup-hooks.sh                            # Configures core.hooksPath
+
 src/
 ├─ app/                                      # Next.js App Router routes and app setup
 │  ├─ layout.tsx
@@ -644,4 +761,5 @@ src/
    └─ style-mock.js
 ```
 
-Legacy migration files still exist under `src/pages` and in several top-level `src/app` or `src` files. See [Migration Note](#migration-note).
+Legacy migration files still exist under `src/pages` and in several top-level `src/app` or `src`
+files. See [Migration Note](#migration-note).
