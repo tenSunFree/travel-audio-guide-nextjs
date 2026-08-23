@@ -4,14 +4,27 @@
   "private": true,
   "scripts": {
     "predev": "kill-port 30401",
-    "dev": "next dev -p 30401",
+    "dev": "next dev -H 0.0.0.0 -p 30401",
     "build": "next build",
     "start": "next start -p 30401",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "format": "prettier --write ."
+    "test:coverage": "jest --coverage --runInBand",
+    "ci": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "hooks:install": "bash scripts/setup-hooks.sh"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": [
+      "prettier --check",
+      "eslint"
+    ],
+    "*.{json,md,mdx,scss,css,yml,yaml}": [
+      "prettier --check"
+    ]
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -23,6 +36,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.61.1",
+    "server-only": "^0.0.1",
     "zod": "^4.0.14"
   },
   "devDependencies": {
@@ -38,6 +52,7 @@
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
     "kill-port": "^2.0.1",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.6.2",
     "sass": "^1.89.2",
     "ts-jest": "^29.4.0",

@@ -23,6 +23,24 @@ export const productSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+/**
+ * Price fields: when the form input is provided, strings (including empty strings)
+ * are allowed; after validation the value is always converted to a number.
+ * We intentionally avoid using z.preprocess here because in Zod v4 the preprocess
+ * input type degrades to unknown, which prevents the form input type (ProductFormInput)
+ * from being usable for string interpolation or comparisons.
+ * Instead we use z.union + transform + pipe so the input type is correctly inferred
+ * as string | number.
+ */
+const priceSchema = z
+  .union([z.string(), z.number()])
+  .transform((value) => {
+    if (typeof value === "number") return value;
+    const trimmed = value.trim();
+    return trimmed === "" ? Number.NaN : Number(trimmed);
+  })
+  .pipe(z.number({ error: "請輸入價格" }).min(0, "價格不可小於 0"));
+
 export const productFormSchema = z
   .object({
     name: z
@@ -38,9 +56,16 @@ export const productFormSchema = z
       .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "只能使用小寫英文、數字與連字號"),
     description: z.string().trim().max(300, "商品說明最多 300 個字"),
     category: productCategorySchema,
-    imageUrl: z.string().trim().url("請輸入有效的圖片網址"),
-    minPrice: z.coerce.number().min(0, "最低價格不可小於 0"),
-    maxPrice: z.coerce.number().min(0, "最高價格不可小於 0"),
+    imageUrl: z
+      .string()
+      .trim()
+      .min(1, "請上傳圖片或輸入圖片網址")
+      .refine(
+        (value) => /^https?:\/\//.test(value) || /^data:image\//.test(value),
+        "請上傳圖片或輸入有效的圖片網址",
+      ),
+    minPrice: priceSchema,
+    maxPrice: priceSchema,
     status: productStatusSchema,
     featured: z.boolean(),
   })
@@ -50,4 +75,8 @@ export const productFormSchema = z
   });
 
 export type Product = z.infer<typeof productSchema>;
-export type ProductFormValues = z.infer<typeof productFormSchema>;
+
+/** Form "input" type: minPrice / maxPrice allow string or number (empty string represents not filled) */
+export type ProductFormInput = z.input<typeof productFormSchema>;
+/** Form "validated" type: minPrice / maxPrice are guaranteed to be numbers; use this type when sending to the API */
+export type ProductFormValues = z.output<typeof productFormSchema>;

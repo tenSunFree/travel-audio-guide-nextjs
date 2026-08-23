@@ -900,3 +900,12 @@ textarea {
     padding: 30px 14px;
   }
 }
+.image-upload-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.image-upload-row input[type="text"],
+.image-upload-row input:not([type="file"]) {
+  flex: 1;
+}

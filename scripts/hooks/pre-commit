@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# scripts/hooks/pre-commit
+#
+# Fast checks before every commit:
+#   1. lint-staged — runs Prettier + ESLint against staged content, not
+#      working-tree files, so what gets checked matches what gets committed
+#   2. Secret scan on staged changes
+#        - gitleaks installed  -> gitleaks git --pre-commit --staged
+#        - gitleaks NOT installed -> fallback regex scanner
+#
+# Install: bash scripts/setup-hooks.sh
+# Bypass (not recommended): git commit --no-verify
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo ""
+echo "pre-commit: running staged-file checks..."
+
+# ============================================================
+# Gather staged files (added/copied/modified, excluding deleted)
+# used by the fallback secret scanner below
+# ============================================================
+STAGED_ALL_FILES=()
+while IFS= read -r -d '' file; do
+    STAGED_ALL_FILES+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+if [ ${#STAGED_ALL_FILES[@]} -eq 0 ]; then
+    echo "No staged files to check."
+    exit 0
+fi
+
+# ============================================================
+# 1. lint-staged (Prettier + ESLint on staged content)
+# ============================================================
+echo ""
+echo "==> lint-staged"
+
+if npx lint-staged; then
+    echo "Passed: lint-staged"
+else
+    echo ""
+    echo "lint-staged found issues, commit aborted."
+    exit 1
+fi
+
+# ============================================================
+# 2. secret scan (staged changes)
+# ============================================================
+echo ""
+echo "==> secret scan (staged changes)"
+
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "Gitleaks detected. Scanning staged content..."
+    echo ""
+
+    if gitleaks git --pre-commit --redact --staged --verbose; then
+        echo ""
+        echo "Passed: gitleaks scan"
+    else
+        GITLEAKS_STATUS=$?
+        echo ""
+        echo "gitleaks detected potentially confidential content (exit code: $GITLEAKS_STATUS), commit aborted."
+        echo "If it is confirmed to be a false positive, you can create a .gitleaks.toml file to set an allowlist."
+        echo "Or use 'git commit --no-verify' to skip it (not recommended)."
+        exit 1
+    fi
+else
+    echo "gitleaks not detected, using the built-in regex fallback scanner instead."
+    echo "It is recommended to install gitleaks for a more complete scan:"
+    echo "https://github.com/gitleaks/gitleaks#installing"
+    echo ""
+
+    SECRET_PATTERN="AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[0-9A-Za-z]{20,}|-----BEGIN (RSA|DSA|EC|OPENSSH|PRIVATE) KEY-----|(password|passwd|secret|token|api[_-]?key)[[:space:]]*[:=][[:space:]]*[\"'][^\"']{6,}[\"']"
+
+    FOUND_SECRET=0
+    for f in "${STAGED_ALL_FILES[@]}"; do
+        [ -f "$f" ] || continue
+
+        if ! git diff --cached -- "$f" | grep -Iq .; then
+            continue
+        fi
+
+        MATCHES=$(git diff --cached -U0 -- "$f" \
+            | grep -E '^\+' | grep -vE '^\+\+\+' \
+            | grep -EiA0 -- "$SECRET_PATTERN")
+
+        if [ -n "$MATCHES" ]; then
+            echo ""
+            echo "Possible confidential content: $f"
+            echo "$MATCHES" | sed 's/^/    /'
+            FOUND_SECRET=1
+        fi
+
+        case "$f" in
+            *.env|*.env.*|*.pem|*.p12|*.jks|*.keystore|*id_rsa*|*id_ed25519*)
+                echo ""
+                echo "Submitting a file that looks like a confidential/credential file: $f"
+                FOUND_SECRET=1
+                ;;
+        esac
+    done
+
+    if [ "$FOUND_SECRET" -ne 0 ]; then
+        echo ""
+        echo "The fallback scanner detected potentially confidential content, and the commit was aborted."
+        echo "If it is determined to be a false positive, you can use 'git commit --no-verify' to skip it (not recommended)."
+        exit 1
+    fi
+
+    echo "Passed: fallback secret scan"
+fi
+
+echo ""
+echo "pre-commit: All checks passed."
+exit 0

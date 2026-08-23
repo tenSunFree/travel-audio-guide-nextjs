@@ -21,7 +21,7 @@ function NavItem({
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const active = exact ? pathname === href : pathname.startsWith(href);
+  const active = exact ? pathname === href : (pathname ?? "").startsWith(href);
   return (
     <Link href={href} className={active ? "active" : ""}>
       {children}

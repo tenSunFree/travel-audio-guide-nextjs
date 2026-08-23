@@ -6,6 +6,7 @@ import {
   type ArticleFormValues,
 } from "./article.schema";
 import { formToArticleData } from "./article.mapper";
+import { generateUuid } from "@/shared/lib/generate-uuid";
 
 /**
  * This type defines the article data-layer contract. Currently `articleRepository` is a localStorage implementation.
@@ -126,7 +127,7 @@ export const articleRepository: ArticleRepository = {
     assertUniqueSlug(articles, values.slug);
     const timestamp = now();
     const article: Article = {
-      id: crypto.randomUUID(),
+      id: generateUuid(),
       ...formToArticleData(values),
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -163,7 +164,7 @@ export const articleRepository: ArticleRepository = {
     const timestamp = now();
     const copy: Article = {
       ...source,
-      id: crypto.randomUUID(),
+      id: generateUuid(),
       title: `${source.title}（副本）`,
       slug,
       status: "draft",
