@@ -207,7 +207,9 @@ export function ProductEditorPage({ productId }: { productId?: string }) {
                   }}
                 />
                 <input
-                  {...form.register("imageUrl")}
+                  {...form.register("imageUrl", {
+                    onChange: () => setImageError(null),
+                  })}
                   aria-label="商品圖片網址"
                   placeholder="或貼上 https://... 圖片網址"
                 />

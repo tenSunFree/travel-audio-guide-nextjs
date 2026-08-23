@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # scripts/hooks/pre-commit
 #
-# Fast checks on staged files only, before every commit:
-#   1. Prettier --check on staged, formattable files
-#   2. ESLint on staged JS/TS files
-#   3. Secret scan on staged changes
+# Fast checks before every commit:
+#   1. lint-staged — runs Prettier + ESLint against staged content, not
+#      working-tree files, so what gets checked matches what gets committed
+#   2. Secret scan on staged changes
 #        - gitleaks installed  -> gitleaks git --pre-commit --staged
 #        - gitleaks NOT installed -> fallback regex scanner
-#
-# Full-repo checks (typecheck, tests, build) run in pre-push instead,
-# to keep every commit fast.
 #
 # Install: bash scripts/setup-hooks.sh
 # Bypass (not recommended): git commit --no-verify
@@ -22,6 +19,7 @@ echo "pre-commit: running staged-file checks..."
 
 # ============================================================
 # Gather staged files (added/copied/modified, excluding deleted)
+# used by the fallback secret scanner below
 # ============================================================
 STAGED_ALL_FILES=()
 while IFS= read -r -d '' file; do
@@ -34,67 +32,21 @@ if [ ${#STAGED_ALL_FILES[@]} -eq 0 ]; then
 fi
 
 # ============================================================
-# 1. Prettier (staged files only)
+# 1. lint-staged (Prettier + ESLint on staged content)
 # ============================================================
 echo ""
-echo "==> prettier (staged files)"
+echo "==> lint-staged"
 
-PRETTIER_TARGETS=()
-for f in "${STAGED_ALL_FILES[@]}"; do
-    [ -f "$f" ] || continue
-    case "$f" in
-        *.js|*.jsx|*.ts|*.tsx|*.json|*.md|*.mdx|*.scss|*.css|*.yml|*.yaml)
-            PRETTIER_TARGETS+=("$f")
-            ;;
-    esac
-done
-
-if [ ${#PRETTIER_TARGETS[@]} -gt 0 ]; then
-    if npx prettier --check "${PRETTIER_TARGETS[@]}"; then
-        echo "Passed: prettier"
-    else
-        echo ""
-        echo "Unformatted staged file(s) found, commit aborted. Please run:"
-        echo "  npx prettier --write ${PRETTIER_TARGETS[*]}"
-        echo "  git add -u"
-        echo "  git commit"
-        exit 1
-    fi
+if npx lint-staged; then
+    echo "Passed: lint-staged"
 else
-    echo "No formattable files staged, skipping."
+    echo ""
+    echo "lint-staged found issues, commit aborted."
+    exit 1
 fi
 
 # ============================================================
-# 2. ESLint (staged JS/TS files only)
-# ============================================================
-echo ""
-echo "==> eslint (staged files)"
-
-ESLINT_TARGETS=()
-for f in "${STAGED_ALL_FILES[@]}"; do
-    [ -f "$f" ] || continue
-    case "$f" in
-        *.js|*.jsx|*.ts|*.tsx)
-            ESLINT_TARGETS+=("$f")
-            ;;
-    esac
-done
-
-if [ ${#ESLINT_TARGETS[@]} -gt 0 ]; then
-    if npx eslint "${ESLINT_TARGETS[@]}"; then
-        echo "Passed: eslint"
-    else
-        echo ""
-        echo "Lint issues found in staged file(s), commit aborted. Please fix:"
-        echo "  npx eslint ${ESLINT_TARGETS[*]}"
-        exit 1
-    fi
-else
-    echo "No lintable files staged, skipping."
-fi
-
-# ============================================================
-# 3. secret scan (staged changes)
+# 2. secret scan (staged changes)
 # ============================================================
 echo ""
 echo "==> secret scan (staged changes)"

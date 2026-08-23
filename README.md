@@ -159,6 +159,8 @@ Go API is connected.
 - Fill transparent PNG backgrounds with white before conversion, since JPEG has no alpha channel.
 - Reject SVG uploads and images with unusable dimensions.
 - Store the resulting image as a `data:image/jpeg;...` URL alongside the rest of the product record.
+- Clear a previous upload error as soon as the user edits the image URL field, so stale error
+  messages don't linger after switching from an upload attempt to a pasted URL.
 
 ### Product Validation
 
@@ -190,7 +192,8 @@ Go API is connected.
 - Show an empty state with a link to create a product when no products match.
 
 > The cart, favorites, authentication, language switcher, currency switcher, and individual
-> product-detail pages are currently presentation placeholders and are not complete commerce features.
+> product-detail pages are currently presentation placeholders and are not complete commerce
+> features.
 
 ### Import and Export
 
@@ -333,9 +336,11 @@ Mutations performed in the current tab invalidate their own query caches directl
 - **ESLint 9** — flat configuration with `eslint-config-next`, run directly via the ESLint CLI (
   Next.js 16 removed the `next lint` command).
 - **Prettier 3** — source formatting.
-- **GitHub Actions** — CI running format, lint, typecheck, test coverage, and build on every push
-  and pull request.
+- **GitHub Actions** — CI running format, lint, typecheck, test coverage, and build on every
+  qualifying push and pull request, with actions pinned to commit SHAs.
 - **Codecov** — test coverage reporting.
+- **lint-staged** — runs Prettier and ESLint against staged content only in the pre-commit hook, so
+  checks match exactly what is about to be committed.
 - **Gitleaks (optional)** — local secret scanning in the pre-commit hook, with a lightweight regex
   fallback when not installed.
 
@@ -461,15 +466,15 @@ without adding access control.
 npm run dev            # Stop port 30401 first, then start the development server
 npm run build          # Create a production build in .next/
 npm run start           # Run the production build on port 30401
-npm run typecheck       # Run TypeScript checking without emitting files
-npm run lint            # Run ESLint directly (next lint was removed in Next.js 16)
-npm run format          # Format the project with Prettier
-npm run format:check    # Check formatting without writing changes (used in CI)
-npm test                # Run Jest serially
-npm run test:watch      # Run Jest in watch mode
-npm run test:coverage   # Run Jest serially with coverage collection
-npm run ci              # Run format:check, lint, typecheck, test:coverage, and build in sequence
-npm run hooks:install   # Configure pre-commit and pre-push Git hooks
+npm run typecheck        # Run TypeScript checking without emitting files
+npm run lint             # Run ESLint directly (next lint was removed in Next.js 16)
+npm run format           # Format the project with Prettier
+npm run format:check     # Check formatting without writing changes (used in CI)
+npm test                 # Run Jest serially
+npm run test:watch       # Run Jest in watch mode
+npm run test:coverage    # Run Jest serially with coverage collection
+npm run ci               # Run format:check, lint, typecheck, test:coverage, and build in sequence
+npm run hooks:install    # Configure pre-commit and pre-push Git hooks
 ```
 
 ---
@@ -515,12 +520,14 @@ npm run test:coverage
 
 Optional Git hooks under `scripts/hooks/` provide fast, local feedback before changes reach CI:
 
-- **`pre-commit`** — runs Prettier `--check` and ESLint on staged files only (not the whole
-  repository, to keep every commit fast), and scans staged changes for potential secrets
-  using [Gitleaks](https://github.com/gitleaks/gitleaks) if installed, or a lightweight regex
-  fallback if not.
-- **`pre-push`** — runs the full `npm run ci` pipeline (format check, lint, typecheck, test
-  coverage, build) before allowing a push.
+- **`pre-commit`** — runs [lint-staged](https://github.com/okonet/lint-staged) (Prettier and ESLint
+  against staged content, not working-tree files, so checks match exactly what will be committed),
+  and scans staged changes for potential secrets using
+  [Gitleaks](https://github.com/gitleaks/gitleaks) if installed, or a lightweight regex fallback if
+  not.
+- **`pre-push`** — rejects a push if the working tree has uncommitted changes (so the CI run below
+  reflects exactly what is about to be pushed), then runs the full `npm run ci` pipeline (format
+  check, lint, typecheck, test coverage, build).
 
 Install them once after cloning:
 
@@ -540,8 +547,8 @@ Node version).
 
 ## Continuous Integration
 
-Every push to `main` and every pull request runs a GitHub Actions workflow (
-`.github/workflows/ci.yml`) that performs:
+Every qualifying push to `main` (excluding changes limited to `**.md`, `docs/**`, or `.gitignore`)
+and every pull request runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that performs:
 
 1. `npm run format:check` — Prettier formatting check.
 2. `npm run lint` — ESLint.
@@ -549,6 +556,9 @@ Every push to `main` and every pull request runs a GitHub Actions workflow (
 4. `npm run test:coverage` — Jest with coverage collection.
 5. Coverage upload to Codecov.
 6. `npm run build` — production build verification.
+
+GitHub Actions are pinned to specific commit SHAs (rather than floating version tags) to reduce
+supply-chain risk, with a version comment next to each pin for readability.
 
 Pull requests are additionally reviewed automatically by CodeRabbit.
 
@@ -612,6 +622,8 @@ Planned or reasonable next steps include:
 - Add repository, schema, and UI tests, including for the product API routes.
 - Migrate article storage to the server as well, for consistency with products.
 - Add CI coverage thresholds and PR-level coverage reporting through Codecov.
+- Validate exact staged/pushed Git content in an isolated worktree for stronger hook guarantees,
+  rather than relying on a clean working tree at push time.
 
 ---
 
@@ -668,8 +680,8 @@ Before publishing it as an open-source or commercial project:
 ```text
 scripts/
 ├─ hooks/
-│  ├─ pre-commit                             # Staged-file Prettier + ESLint + secret scan
-│  └─ pre-push                               # Full `npm run ci` pipeline
+│  ├─ pre-commit                             # lint-staged (staged Prettier + ESLint) + secret scan
+│  └─ pre-push                               # Reject dirty worktree, then full `npm run ci`
 └─ setup-hooks.sh                            # Configures core.hooksPath
 
 src/
