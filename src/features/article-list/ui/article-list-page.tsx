@@ -60,22 +60,25 @@ export function ArticleListPage() {
     });
   }, [articles, query, status]);
 
-  function exportData() {
-    const blob = new Blob([articleRepository.exportJson()], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `cms-articles-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  async function exportData() {
+    try {
+      const json = await articleRepository.exportJson();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `cms-articles-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "匯出失敗");
+    }
   }
 
   async function importData(file?: File) {
     if (!file) return;
     try {
-      const count = articleRepository.importJson(await file.text());
+      const count = await articleRepository.importJson(await file.text());
       await refresh();
       setNotice(`已匯入 ${count} 篇文章。`);
     } catch (error) {
@@ -89,10 +92,10 @@ export function ArticleListPage() {
     <section>
       <PageHeader
         title="文章管理"
-        description={`共 ${articles.length} 篇文章；資料儲存在目前瀏覽器。`}
+        description={`共 ${articles.length} 篇文章；資料由伺服器同步，可跨裝置共用。`}
         actions={
           <>
-            <button className="button" onClick={exportData}>
+            <button className="button" onClick={() => void exportData()}>
               <Download size={16} />
               匯出
             </button>

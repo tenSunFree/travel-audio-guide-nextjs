@@ -5,13 +5,12 @@ import {
   type Article,
   type ArticleFormValues,
 } from "./article.schema";
-import { formToArticleData } from "./article.mapper";
-import { generateUuid } from "@/shared/lib/generate-uuid";
 
 /**
- * This type defines the article data-layer contract. Currently `articleRepository` is a localStorage implementation.
- * Later (when a Go API + PostgreSQL are ready), add `article.repository.remote.ts` implementing the same `ArticleRepository`
- * (internally using fetch to the API) and swap this file's export so callers need no changes.
+ * Article data-layer contract.
+ * Implementation is now server-backed (API + JSON store).
+ * When Go API + PostgreSQL are ready, swap the fetch base URL;
+ * callers of this interface need no changes.
  */
 export type ArticleRepository = {
   list(): Promise<Article[]>;
@@ -22,172 +21,138 @@ export type ArticleRepository = {
   update(id: string, values: ArticleFormValues): Promise<Article>;
   duplicate(id: string): Promise<Article>;
   remove(id: string): Promise<void>;
-  exportJson(): string;
-  importJson(raw: string): number;
+  exportJson(): Promise<string>;
+  importJson(raw: string): Promise<number>;
 };
 
-export const STORAGE_KEY = "travel-audio-guide-react:articles:v2";
+type ApiErrorBody = { message?: string };
 
-function now() {
-  return new Date().toISOString();
-}
-
-const seedArticles: Article[] = [
-  {
-    id: "96784776-469d-4c9b-b70e-f760a9fe1513",
-    title: "歡迎使用 The Desk CMS",
-    slug: "welcome-to-the-desk-cms",
-    author: "Sun",
-    excerpt:
-      "這是一套採用 page-scoped FSD、Next.js App Router 與 TanStack Query 的本地 CMS。",
-    content:
-      "# 歡迎使用 The Desk CMS\n\n你可以在後台新增、編輯、搜尋、預覽與發布文章。\n\n## 技術特色\n\n- React 19\n- Next.js App Router\n- TanStack Query\n- React Hook Form + Zod\n- localStorage Repository（未來將替換為 Go API + PostgreSQL）\n- Markdown + DOMPurify",
-    tags: ["react", "nextjs", "cms"],
-    status: "published",
-    seoTitle: "The Desk CMS｜Next.js 內容管理系統",
-    seoDescription:
-      "使用 Next.js、TypeScript 與 TanStack Query 建立的內容管理系統。",
-    createdAt: now(),
-    updatedAt: now(),
-    publishedAt: now(),
-  },
-];
-
-const delay = (ms = 80) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function isBrowser() {
-  return typeof window !== "undefined";
-}
-
-function readAll(): Article[] {
-  // localStorage exists only in the browser; during server-side rendering (or if used in a Server Component),
-  // return an empty array to avoid crashing the page.
-  if (!isBrowser()) return [];
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    writeAll(seedArticles);
-    return clone(seedArticles);
-  }
+async function parseError(
+  response: Response,
+  fallback: string,
+): Promise<Error> {
   try {
-    return articleSchema.array().parse(JSON.parse(raw));
+    const body = (await response.json()) as ApiErrorBody;
+    return new Error(body.message || fallback);
   } catch {
-    writeAll(seedArticles);
-    return clone(seedArticles);
+    return new Error(fallback);
   }
 }
 
-function writeAll(articles: Article[]) {
-  if (!isBrowser()) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(articles));
-}
+async function requestJson(
+  path: string,
+  options?: RequestInit,
+): Promise<unknown> {
+  const response = await fetch(path, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...(options?.body ? { "Content-Type": "application/json" } : {}),
+      ...options?.headers,
+    },
+  });
 
-function assertUniqueSlug(
-  articles: Article[],
-  slug: string,
-  ignoredId?: string,
-) {
-  if (
-    articles.some(
-      (article) => article.slug === slug && article.id !== ignoredId,
-    )
-  ) {
-    throw new Error("此網址代稱已被其他文章使用");
+  if (!response.ok) {
+    throw await parseError(response, `API 請求失敗：${response.status}`);
   }
+
+  if (response.status === 204) return undefined;
+  return response.json();
 }
 
 export const articleRepository: ArticleRepository = {
-  async list(): Promise<Article[]> {
-    await delay();
-    return readAll().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  async list() {
+    const result = await requestJson("/api/articles");
+    return articleSchema.array().parse(result);
   },
-  async listPublished(): Promise<Article[]> {
-    await delay();
-    return readAll()
-      .filter((a) => a.status === "published")
-      .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
+
+  async listPublished() {
+    const result = await requestJson("/api/articles?status=published");
+    return articleSchema.array().parse(result);
   },
-  async getById(id: string): Promise<Article | null> {
-    await delay();
-    return readAll().find((a) => a.id === id) ?? null;
+
+  async getById(id) {
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw await parseError(response, "取得文章失敗");
+    return articleSchema.parse(await response.json());
   },
-  async getPublishedBySlug(slug: string): Promise<Article | null> {
-    await delay();
-    return (
-      readAll().find((a) => a.slug === slug && a.status === "published") ?? null
+
+  async getPublishedBySlug(slug) {
+    const response = await fetch(
+      `/api/articles?slug=${encodeURIComponent(slug)}`,
+      {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
     );
+    if (response.status === 404) return null;
+    if (!response.ok) throw await parseError(response, "取得公開文章失敗");
+    return articleSchema.parse(await response.json());
   },
-  async create(values: ArticleFormValues): Promise<Article> {
-    await delay();
-    const articles = readAll();
-    assertUniqueSlug(articles, values.slug);
-    const timestamp = now();
-    const article: Article = {
-      id: generateUuid(),
-      ...formToArticleData(values),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      publishedAt: values.status === "published" ? timestamp : null,
-    };
-    writeAll([article, ...articles]);
-    return clone(article);
+
+  async create(values) {
+    const result = await requestJson("/api/articles", {
+      method: "POST",
+      body: JSON.stringify(values),
+    });
+    return articleSchema.parse(result);
   },
-  async update(id: string, values: ArticleFormValues): Promise<Article> {
-    await delay();
-    const articles = readAll();
-    const current = articles.find((a) => a.id === id);
-    if (!current) throw new Error("找不到文章");
-    assertUniqueSlug(articles, values.slug, id);
-    const article: Article = {
-      ...current,
-      ...formToArticleData(values),
-      updatedAt: now(),
-      publishedAt:
-        values.status === "published" ? (current.publishedAt ?? now()) : null,
-    };
-    writeAll(articles.map((a) => (a.id === id ? article : a)));
-    return clone(article);
+
+  async update(id, values) {
+    const result = await requestJson(
+      `/api/articles/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(values),
+      },
+    );
+    return articleSchema.parse(result);
   },
-  async duplicate(id: string): Promise<Article> {
-    await delay();
-    const articles = readAll();
-    const source = articles.find((a) => a.id === id);
-    if (!source) throw new Error("找不到文章");
-    let slug = `${source.slug}-copy`;
-    let index = 2;
-    while (articles.some((a) => a.slug === slug))
-      slug = `${source.slug}-copy-${index++}`;
-    const timestamp = now();
-    const copy: Article = {
-      ...source,
-      id: generateUuid(),
-      title: `${source.title}（副本）`,
-      slug,
-      status: "draft",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      publishedAt: null,
-    };
-    writeAll([copy, ...articles]);
-    return clone(copy);
+
+  async duplicate(id) {
+    const result = await requestJson("/api/articles?action=duplicate", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    return articleSchema.parse(result);
   },
-  async remove(id: string): Promise<void> {
-    await delay();
-    writeAll(readAll().filter((a) => a.id !== id));
+
+  async remove(id) {
+    const response = await fetch(`/api/articles/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) throw await parseError(response, "刪除文章失敗");
   },
-  exportJson(): string {
-    return JSON.stringify(readAll(), null, 2);
+
+  async exportJson() {
+    const articles = await this.list();
+    return JSON.stringify(articles, null, 2);
   },
-  importJson(raw: string): number {
-    const articles = articleSchema.array().parse(JSON.parse(raw));
+
+  async importJson(raw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error("匯入檔案不是合法 JSON");
+    }
+
+    const articles = articleSchema.array().parse(parsed);
     const slugs = new Set(articles.map((a) => a.slug));
-    if (slugs.size !== articles.length)
+    if (slugs.size !== articles.length) {
       throw new Error("匯入資料包含重複網址代稱");
-    writeAll(articles);
-    return articles.length;
+    }
+
+    const result = (await requestJson("/api/articles?action=import", {
+      method: "POST",
+      body: JSON.stringify(articles),
+    })) as { count: number };
+
+    return result.count;
   },
 };
