@@ -43,6 +43,10 @@ export const articleFormSchema = z.object({
   seoDescription: z.string().trim().max(160, "SEO 描述最多 160 個字"),
 });
 
+export const articleImportResultSchema = z.object({
+  count: z.number().int().nonnegative(),
+});
+
 export type Article = z.infer<typeof articleSchema>;
 export type ArticleFormValues = z.infer<typeof articleFormSchema>;
 export type ArticleStatus = z.infer<typeof articleStatusSchema>;

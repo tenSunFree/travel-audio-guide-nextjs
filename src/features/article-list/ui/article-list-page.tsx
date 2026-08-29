@@ -68,8 +68,10 @@ export function ArticleListPage() {
       const link = document.createElement("a");
       link.href = url;
       link.download = `cms-articles-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "匯出失敗");
     }

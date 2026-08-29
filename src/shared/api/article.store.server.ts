@@ -128,6 +128,16 @@ function assertUniqueSlugs(articles: Article[]): void {
   }
 }
 
+function assertUniqueIds(articles: Article[]): void {
+  const ids = new Set<string>();
+  for (const article of articles) {
+    if (ids.has(article.id)) {
+      throw new Error(`匯入資料包含重複文章 id：${article.id}`);
+    }
+    ids.add(article.id);
+  }
+}
+
 export const articleStore = {
   list(): Promise<Article[]> {
     return serialize(async () => {
@@ -262,6 +272,7 @@ export const articleStore = {
     return serialize(async () => {
       const validated = articleSchema.array().parse(articles);
       assertUniqueSlugs(validated);
+      assertUniqueIds(validated);
       await writeArticlesUnsafe(validated);
       return validated;
     });

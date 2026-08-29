@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  articleImportResultSchema,
   articleSchema,
   type Article,
   type ArticleFormValues,
@@ -143,16 +144,22 @@ export const articleRepository: ArticleRepository = {
     }
 
     const articles = articleSchema.array().parse(parsed);
+
     const slugs = new Set(articles.map((a) => a.slug));
     if (slugs.size !== articles.length) {
       throw new Error("匯入資料包含重複網址代稱");
     }
 
-    const result = (await requestJson("/api/articles?action=import", {
+    const ids = new Set(articles.map((a) => a.id));
+    if (ids.size !== articles.length) {
+      throw new Error("匯入資料包含重複文章 id");
+    }
+
+    const result = await requestJson("/api/articles?action=import", {
       method: "POST",
       body: JSON.stringify(articles),
-    })) as { count: number };
+    });
 
-    return result.count;
+    return articleImportResultSchema.parse(result).count;
   },
 };

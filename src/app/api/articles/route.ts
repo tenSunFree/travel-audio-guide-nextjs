@@ -91,12 +91,7 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof ArticleSlugConflictError) {
       return Response.json({ message: error.message }, { status: 409 });
     }
-    console.error("POST /api/articles failed:", error);
-    return Response.json(
-      {
-        message: error instanceof Error ? error.message : "建立文章失敗",
-      },
-      { status: 500 },
-    );
+    console.error("POST /api/articles failed:", error); // Detailed errors are only written to the log.
+    return Response.json({ message: "建立文章失敗" }, { status: 500 }); // Fixed message
   }
 }

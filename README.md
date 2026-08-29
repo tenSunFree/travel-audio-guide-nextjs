@@ -201,7 +201,7 @@ Article data supports JSON import and export:
 - Export all article data as a JSON backup.
 - Import article data from a JSON file.
 - Validate imported records with Zod.
-- Reject malformed records and duplicate slugs.
+- Reject malformed records and duplicate slugs or ids.
 - Refresh TanStack Query caches after importing data.
 
 Product import and export have not yet been implemented as an administration feature.
@@ -240,7 +240,9 @@ Current limitations (both domains):
   protect against concurrent writes across multiple server processes or instances.
 - Storage is ephemeral on common serverless hosts (for example Cloud Run); redeploying or recycling
   an instance can delete JSON files under `data/` unless they are mounted on durable storage.
-- There is no authentication or server-side access control on the API routes.
+- Access control is a single shared `ADMIN_TOKEN` session cookie checked in middleware (see
+  [Administration Authentication](#administration-authentication)), not per-user authentication or
+  role-based access control.
 - There is no revision history.
 - There is no production-grade backup strategy.
 - Product images are embedded as base64 data URLs directly in `data/products.json` rather than
@@ -285,6 +287,8 @@ development server appear without relying on `localStorage` or the browser `stor
 - `ProductRepository` for product persistence, calling internal API routes.
 - Server-only stores (`article.store.server.ts`, `product.store.server.ts`) performing serialized,
   atomic reads and writes to JSON files under `data/`.
+- `src/middleware.ts` guarding admin pages and write-capable API routes with a shared-secret session
+  cookie (see [Administration Authentication](#administration-authentication)).
 - TanStack Query for asynchronous state, caching, mutations, invalidation, and polling.
 - Structured query keys for article and product list/detail views.
 - React Hook Form for editor form state.
@@ -336,8 +340,14 @@ Copy `.env.example` to `.env.local` and fill in values as needed. `.env.local` i
 `.gitignore` and should not be committed.
 
 ```text
+ADMIN_TOKEN=
 DEV_ALLOWED_ORIGINS=192.168.0.49
 ```
+
+`ADMIN_TOKEN` is a shared secret that protects the administration interface and any write-capable
+article/product API request. It is required — `npm run dev` will start without it, but admin login
+attempts fail with a 500 until it is set. See
+[Administration Authentication](#administration-authentication) for how it is used.
 
 `DEV_ALLOWED_ORIGINS` is a comma-separated list of hostnames or LAN IP addresses. It is read by
 `next.config.mjs` and passed to Next.js's `allowedDevOrigins` option, allowing devices on the same
@@ -346,8 +356,9 @@ cross-origin warnings. This variable is optional; leave it unset if you only dev
 `localhost`.
 
 `npm run dev` binds the development server to `0.0.0.0`, making it reachable from other devices on
-the local network. The article and product API routes do not currently require authentication, so
-treat LAN access as a development convenience rather than a secure deployment.
+the local network. Admin pages and write-capable API routes still require the `ADMIN_TOKEN` session
+described above, so LAN reachability alone does not expose them — but a shared secret compared over
+plain HTTP is still only appropriate for a trusted local network, not the public internet.
 
 ---
 
@@ -393,6 +404,9 @@ http://localhost:30401/admin/products
 http://localhost:30401/admin/products/new
 ```
 
+These require signing in at `/admin/login` with the `ADMIN_TOKEN` value first — see
+[Administration Authentication](#administration-authentication).
+
 ### Public Pages
 
 ```text
@@ -402,11 +416,35 @@ http://localhost:30401/travel-items
 
 ---
 
+## Administration Authentication
+
+The administration interface and any request that mutates data or lists non-published
+articles/products are protected by `src/middleware.ts`, using a single shared `ADMIN_TOKEN` stored
+in an httpOnly session cookie:
+
+- Visiting an `/admin/*` page without a valid session redirects to `/admin/login?next=<path>`.
+- `POST /api/admin/login` compares the submitted token against `ADMIN_TOKEN` and, on success, sets
+  an httpOnly `admin_session` cookie (`sameSite=lax`, `secure` in production, 8-hour expiry).
+- `DELETE /api/admin/login` clears the cookie (sign-out).
+- Requests to `/api/articles/*` and `/api/products/*` require a valid session **except** for
+  `GET ?status=published` and `GET ?slug=...`, which stay public so the storefront and public
+  article pages keep working without authentication.
+- Unauthenticated requests to a protected API route receive `401`; unauthenticated requests to a
+  protected admin page are redirected to `/admin/login`.
+
+This is a **Phase 1.5 stopgap** suitable for a single trusted administrator on a local or private
+network — it is not per-user authentication and has no roles, audit log, or token rotation. It is
+expected to be replaced by real session/user authentication once the Go API and PostgreSQL are
+connected (see [Future Development](#future-development)).
+
+---
+
 ## Main Routes
 
 | Route                                 | Description                    |
 | ------------------------------------- | ------------------------------ |
 | `/`                                   | Redirects to `/admin/articles` |
+| `/admin/login`                        | Administration login           |
 | `/admin/articles`                     | Article administration list    |
 | `/admin/articles/new`                 | Create a new article           |
 | `/admin/articles/[articleId]/edit`    | Edit an article                |
@@ -423,22 +461,24 @@ The product slug is currently reserved for a future product-detail route. There 
 
 ### API Routes
 
-| Route                       | Method   | Description                                                                                             |
-| --------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `/api/articles`             | `GET`    | List all articles, or published-only with `?status=published`; `?slug=` for a published article by slug |
-| `/api/articles`             | `POST`   | Create an article; `?action=duplicate` or `?action=import` for special actions                          |
-| `/api/articles/[articleId]` | `GET`    | Get a single article by id                                                                              |
-| `/api/articles/[articleId]` | `PUT`    | Update an article                                                                                       |
-| `/api/articles/[articleId]` | `DELETE` | Delete an article                                                                                       |
-| `/api/products`             | `GET`    | List all products, or published-only with `?status=published`                                           |
-| `/api/products`             | `POST`   | Create a product                                                                                        |
-| `/api/products/[productId]` | `GET`    | Get a single product by id                                                                              |
-| `/api/products/[productId]` | `PUT`    | Update a product                                                                                        |
-| `/api/products/[productId]` | `DELETE` | Delete a product                                                                                        |
+| Route                       | Method   | Description                                                                                                                                |
+| --------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/api/admin/login`          | `POST`   | Log in with `ADMIN_TOKEN`; sets the `admin_session` cookie on success                                                                      |
+| `/api/admin/login`          | `DELETE` | Clear the `admin_session` cookie (sign-out)                                                                                                |
+| `/api/articles`             | `GET`    | List all articles (requires a session), or published-only with `?status=published`; `?slug=` for a published article by slug (both public) |
+| `/api/articles`             | `POST`   | Create an article; `?action=duplicate` or `?action=import` for special actions (requires a session)                                        |
+| `/api/articles/[articleId]` | `GET`    | Get a single article by id (requires a session)                                                                                            |
+| `/api/articles/[articleId]` | `PUT`    | Update an article (requires a session)                                                                                                     |
+| `/api/articles/[articleId]` | `DELETE` | Delete an article (requires a session)                                                                                                     |
+| `/api/products`             | `GET`    | List all products (requires a session), or published-only with `?status=published` (public)                                                |
+| `/api/products`             | `POST`   | Create a product (requires a session)                                                                                                      |
+| `/api/products/[productId]` | `GET`    | Get a single product by id (requires a session)                                                                                            |
+| `/api/products/[productId]` | `PUT`    | Update a product (requires a session)                                                                                                      |
+| `/api/products/[productId]` | `DELETE` | Delete a product (requires a session)                                                                                                      |
 
 All article and product routes read from and write to JSON files under `data/` on the server and are
-validated with Zod. These routes currently have no authentication and should not be exposed to an
-untrusted network without adding access control.
+validated with Zod. "Requires a session" means the `admin_session` cookie described in
+[Administration Authentication](#administration-authentication); requests without it receive `401`.
 
 ---
 
@@ -467,13 +507,21 @@ Automated tests currently cover:
 
 - `slugify` — English and Chinese normalization and unsupported-character stripping.
 - `tags` — trimming and de-duplication.
+- `middleware` — session-cookie authorization, public read-path allowlisting (`?status=published`,
+  `?slug=`), admin-page redirects, and 401 responses for unauthenticated API requests (articles and
+  products).
+- `articleStore.replaceAll` — duplicate-slug and duplicate-id rejection, and atomic
+  write-then-rename behavior.
+- `articleRepository.importJson` — invalid JSON, schema validation failures, duplicate slug/id
+  rejection before the API call, and import-response shape validation.
 
 Tests still to be added:
 
 - Article schema validation.
-- Article repository behavior.
-- Article import/export validation.
+- Remaining `ArticleRepository` methods (`list`, `create`, `update`, `duplicate`, `remove`).
+- Remaining `articleStore` methods beyond `replaceAll` (slug-conflict handling on create/update).
 - Article API route behavior (slug conflicts, validation errors, not-found handling).
+- `/api/admin/login` route behavior (missing/incorrect token, cookie flags).
 - Product schema validation.
 - Product repository behavior.
 - Product API route behavior (slug conflicts, validation errors, not-found handling).
@@ -555,7 +603,7 @@ Pull requests are additionally reviewed automatically by CodeRabbit.
 Article editor
   → React Hook Form + Zod validation (client)
   → ArticleRepository
-  → /api/articles or /api/articles/[articleId]
+  → /api/articles or /api/articles/[articleId] (behind src/middleware.ts session check)
   → Zod validation (server)
   → article.store.server.ts (serialized, atomic read/write)
   → data/articles.json
@@ -572,7 +620,7 @@ Only articles with `status: "published"` are returned to the public article page
 Product editor
   → React Hook Form + Zod validation (client)
   → ProductRepository
-  → /api/products or /api/products/[productId]
+  → /api/products or /api/products/[productId] (behind src/middleware.ts session check)
   → Zod validation (server)
   → product.store.server.ts (serialized, atomic read/write)
   → data/products.json
@@ -592,10 +640,10 @@ Planned or reasonable next steps include:
 
 - Replace server-file repositories with Go API clients.
 - Persist articles and products in PostgreSQL.
-- Add JWT-based administration authentication.
+- Replace the shared `ADMIN_TOKEN` cookie stopgap (see
+  [Administration Authentication](#administration-authentication)) with real JWT-based, per-user
+  administration authentication.
 - Add role-based access control.
-- Add authentication or another access-control mechanism to the article and product API routes
-  before exposing them beyond local development.
 - Store uploaded product images in dedicated object storage instead of embedding base64 data URLs in
   `data/products.json`.
 - Convert public pages to server-rendered data fetching.
@@ -615,6 +663,10 @@ Planned or reasonable next steps include:
 **Completed (Phase 1.5):** Article storage has been migrated from browser `localStorage` to the same
 server JSON + API + repository pattern used by products. Cross-device sync for both domains now
 relies on polling and focus refetch instead of the `storage` event.
+
+**Completed (Phase 1.6):** Admin pages and write-capable article/product API routes are now
+protected by a shared `ADMIN_TOKEN` session cookie enforced in `src/middleware.ts`. See
+[Administration Authentication](#administration-authentication).
 
 ---
 
@@ -671,6 +723,7 @@ scripts/
 └─ setup-hooks.sh         # Configures core.hooksPath
 
 src/
+├─ middleware.ts          # Admin session-cookie auth guard for /admin/* and write-capable APIs
 ├─ app/                   # Next.js App Router routes and app setup
 │  ├─ layout.tsx
 │  ├─ providers.tsx
@@ -680,6 +733,8 @@ src/
 │  ├─ error.tsx
 │  ├─ admin/
 │  │  ├─ layout.tsx
+│  │  ├─ login/
+│  │  │  └─ page.tsx
 │  │  ├─ articles/
 │  │  │  ├─ page.tsx
 │  │  │  ├─ new/
@@ -697,6 +752,9 @@ src/
 │  │        └─ edit/
 │  │           └─ page.tsx
 │  ├─ api/
+│  │  ├─ admin/
+│  │  │  └─ login/
+│  │  │     └─ route.ts
 │  │  ├─ articles/
 │  │  │  ├─ route.ts
 │  │  │  └─ [articleId]/
@@ -739,8 +797,10 @@ src/
 │  │  ├─ article.mapper.ts
 │  │  ├─ article.queries.ts
 │  │  ├─ article.repository.ts
+│  │  ├─ article.repository.test.ts
 │  │  ├─ article.schema.ts
 │  │  ├─ article.store.server.ts
+│  │  ├─ article.store.server.test.ts
 │  │  ├─ product.queries.ts
 │  │  ├─ product.repository.ts
 │  │  ├─ product.schema.ts
@@ -766,7 +826,3 @@ src/
 
 Legacy migration files still exist under `src/pages` and in several top-level `src/app` or `src`
 files. See [Migration Note](#migration-note).
-
-```
-
-```
