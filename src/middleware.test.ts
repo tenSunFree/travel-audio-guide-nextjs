@@ -35,7 +35,11 @@ describe("middleware", () => {
   });
 
   afterAll(() => {
-    process.env.ADMIN_TOKEN = originalToken;
+    if (originalToken === undefined) {
+      delete process.env.ADMIN_TOKEN;
+    } else {
+      process.env.ADMIN_TOKEN = originalToken;
+    }
   });
 
   it("passes through the login page and login API without a cookie", () => {

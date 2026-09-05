@@ -1,4 +1,5 @@
 import {
+  ArticleImportValidationError,
   ArticleSlugConflictError,
   articleStore,
 } from "@/shared/api/article.store.server";
@@ -90,6 +91,9 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof ArticleSlugConflictError) {
       return Response.json({ message: error.message }, { status: 409 });
+    }
+    if (error instanceof ArticleImportValidationError) {
+      return Response.json({ message: error.message }, { status: 400 });
     }
     console.error("POST /api/articles failed:", error); // Detailed errors are only written to the log.
     return Response.json({ message: "建立文章失敗" }, { status: 500 }); // Fixed message

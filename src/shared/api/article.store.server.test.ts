@@ -9,7 +9,11 @@ import { randomUUID } from "node:crypto";
 import type { Article } from "./article.schema";
 
 const mkdirMock = jest.fn().mockResolvedValue(undefined);
-const readFileMock = jest.fn();
+// `replaceAll` doesn't currently call `readFile`, but default this to valid
+// JSON anyway: if it ever does (directly, or via a shared mock reused by
+// other test cases), `JSON.parse(undefined)` would throw and mask the
+// duplicate-id/atomic-write assertions this suite actually cares about.
+const readFileMock = jest.fn().mockResolvedValue("[]");
 const writeFileMock = jest.fn().mockResolvedValue(undefined);
 const renameMock = jest.fn().mockResolvedValue(undefined);
 
@@ -47,6 +51,7 @@ describe("articleStore.replaceAll", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockResolvedValue("[]");
     writeFileMock.mockResolvedValue(undefined);
     renameMock.mockResolvedValue(undefined);
   });

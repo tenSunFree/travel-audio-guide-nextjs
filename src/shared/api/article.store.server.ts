@@ -22,6 +22,19 @@ export class ArticleSlugConflictError extends Error {
 }
 
 /**
+ * Raised when a bulk-import payload itself is internally inconsistent
+ * (duplicate slugs or ids within the imported set). This is a client
+ * input-validation problem, not a server fault or a single-record slug
+ * conflict — route handlers should map it to HTTP 400, not 500.
+ */
+export class ArticleImportValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ArticleImportValidationError";
+  }
+}
+
+/**
  * Serialize the complete read → validate → mutate → write operation
  * to avoid lost updates inside one Node.js process.
  *
@@ -122,7 +135,9 @@ function assertUniqueSlugs(articles: Article[]): void {
   const slugs = new Set<string>();
   for (const article of articles) {
     if (slugs.has(article.slug)) {
-      throw new Error(`匯入資料包含重複網址代稱：${article.slug}`);
+      throw new ArticleImportValidationError(
+        `匯入資料包含重複網址代稱：${article.slug}`,
+      );
     }
     slugs.add(article.slug);
   }
@@ -132,7 +147,9 @@ function assertUniqueIds(articles: Article[]): void {
   const ids = new Set<string>();
   for (const article of articles) {
     if (ids.has(article.id)) {
-      throw new Error(`匯入資料包含重複文章 id：${article.id}`);
+      throw new ArticleImportValidationError(
+        `匯入資料包含重複文章 id：${article.id}`,
+      );
     }
     ids.add(article.id);
   }
