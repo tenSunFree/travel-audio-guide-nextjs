@@ -15,7 +15,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --runInBand",
     "ci": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
-    "hooks:install": "bash scripts/setup-hooks.sh"
+    "hooks:install": "bash scripts/setup-hooks.sh",
+    "postinstall": "bash scripts/check-hooks.sh"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [

@@ -108,6 +108,11 @@ describe("POST /api/admin/login", () => {
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 8,
+        // Regression guard: without this, a build that always sets
+        // `secure: true` regardless of environment would still pass this
+        // test, since the only other assertion on `secure` lives in the
+        // "production" test below.
+        secure: false,
       }),
     );
   });

@@ -370,15 +370,16 @@ Install dependencies:
 npm install
 ```
 
-Configure the recommended Git hooks (optional but recommended):
+Git hooks (see [Git Hooks](#git-hooks)) are configured automatically the first time you run
+`npm install` — a `postinstall` script points Git at `scripts/hooks/` for you if it isn't already
+set up. No separate step is required for a normal clone-and-install flow.
+
+If you ever need to (re)configure them by hand — for example after `npm install --ignore-scripts`,
+or if `core.hooksPath` gets reset — run:
 
 ```bash
 npm run hooks:install
 ```
-
-This points Git at the version-controlled hooks in `scripts/hooks/` via `core.hooksPath`, so they
-run automatically without copying files into `.git/hooks/`. See [Git Hooks](#git-hooks) for what
-each hook checks.
 
 Start the development server:
 
@@ -496,7 +497,7 @@ npm test               # Run Jest serially
 npm run test:watch     # Run Jest in watch mode
 npm run test:coverage  # Run Jest serially with coverage collection
 npm run ci             # Run format:check, lint, typecheck, test:coverage, and build in sequence
-npm run hooks:install  # Configure pre-commit and pre-push Git hooks
+npm run hooks:install  # (Re)configure pre-commit and pre-push Git hooks manually — installed automatically via postinstall on npm install
 ```
 
 ---
@@ -591,7 +592,16 @@ Optional Git hooks under `scripts/hooks/` provide fast, local feedback before ch
   reflects exactly what is about to be pushed), then runs the full `npm run ci` pipeline (format
   check, lint, typecheck, test coverage, build).
 
-Install them once after cloning:
+These are configured automatically. A `postinstall` script (`scripts/check-hooks.sh`) runs after
+every `npm install` and points Git at `scripts/hooks/` via `core.hooksPath` if it isn't already set.
+This runs on install rather than being enforced from within a hook itself, since a pre-push check
+can't run at all until hooks are installed in the first place — `npm install` is the one step that
+reliably closes that gap. If `core.hooksPath` is already set to something else on purpose (for
+example, a developer's own tooling), `check-hooks.sh` leaves it untouched and prints a note instead
+of overriding it. It stays silent in CI and in directories that aren't a Git checkout.
+
+To (re)configure the hooks by hand — for example after `npm install --ignore-scripts`, or if
+`core.hooksPath` gets reset — run:
 
 ```bash
 npm run hooks:install
@@ -700,7 +710,7 @@ relies on polling and focus refetch instead of the `storage` event.
 protected by a shared `ADMIN_TOKEN` session cookie enforced in `src/middleware.ts`. See
 [Administration Authentication](#administration-authentication).
 
-**Completed:** Test coverage was raised from roughly 11% to over 80% statements, adding
+**Completed (Phase 1.7):** Test coverage was raised from roughly 11% to over 80% statements, adding
 unit tests for schemas/mappers/utilities, full store and repository coverage for both domains, tests
 for every API route handler, and React Testing Library component tests for the article/product
 editors and the article list page. See [Testing](#testing) for details.
@@ -757,7 +767,8 @@ scripts/
 ├─ hooks/
 │  ├─ pre-commit          # lint-staged (staged Prettier + ESLint) + secret scan
 │  └─ pre-push            # Reject dirty worktree, then full `npm run ci`
-└─ setup-hooks.sh         # Configures core.hooksPath
+├─ check-hooks.sh         # postinstall: auto-configures core.hooksPath if not already set
+└─ setup-hooks.sh         # Configures core.hooksPath (also runnable manually via hooks:install)
 
 src/
 ├─ middleware.ts          # Admin session-cookie auth guard for /admin/* and write-capable APIs
