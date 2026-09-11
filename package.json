@@ -15,7 +15,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --runInBand",
     "ci": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
-    "hooks:install": "bash scripts/setup-hooks.sh"
+    "hooks:install": "bash scripts/setup-hooks.sh",
+    "postinstall": "bash scripts/check-hooks.sh"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [
@@ -43,6 +44,7 @@
     "@eslint/eslintrc": "^3.2.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.7",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.9",
