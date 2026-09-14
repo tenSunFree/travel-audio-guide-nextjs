@@ -30,8 +30,12 @@ if [ -n "${CI:-}" ]; then
 fi
 
 # Skip if this isn't a Git checkout at all (e.g. extracted from a tarball,
-# or installed as a dependency of another project).
-if [ ! -d ".git" ]; then
+# or installed as a dependency of another project). Use `git rev-parse
+# --is-inside-work-tree` rather than `[ -d ".git" ]`: in a linked worktree
+# (`git worktree add`), `.git` is a *file* pointing at the main repo's
+# gitdir, not a directory, so the old directory check silently skipped
+# hook setup for every worktree checkout.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     exit 0
 fi
 
