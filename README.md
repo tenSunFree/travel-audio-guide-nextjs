@@ -370,15 +370,16 @@ Install dependencies:
 npm install
 ```
 
-Configure the recommended Git hooks (optional but recommended):
+Git hooks (see [Git Hooks](#git-hooks)) are configured automatically the first time you run
+`npm install` — a `postinstall` script points Git at `scripts/hooks/` for you if it isn't already
+set up. No separate step is required for a normal clone-and-install flow.
+
+If you ever need to (re)configure them by hand — for example after `npm install --ignore-scripts`,
+or if `core.hooksPath` gets reset — run:
 
 ```bash
 npm run hooks:install
 ```
-
-This points Git at the version-controlled hooks in `scripts/hooks/` via `core.hooksPath`, so they
-run automatically without copying files into `.git/hooks/`. See [Git Hooks](#git-hooks) for what
-each hook checks.
 
 Start the development server:
 
@@ -496,42 +497,73 @@ npm test               # Run Jest serially
 npm run test:watch     # Run Jest in watch mode
 npm run test:coverage  # Run Jest serially with coverage collection
 npm run ci             # Run format:check, lint, typecheck, test:coverage, and build in sequence
-npm run hooks:install  # Configure pre-commit and pre-push Git hooks
+npm run hooks:install  # (Re)configure pre-commit and pre-push Git hooks manually — installed automatically via postinstall on npm install
 ```
 
 ---
 
 ## Testing
 
-Automated tests currently cover:
+The project has unit, integration, and component test coverage across the schema/store/repository
+layer, all API route handlers, and the two most complex editor pages.
+
+### Unit tests
 
 - `slugify` — English and Chinese normalization and unsupported-character stripping.
 - `tags` — trimming and de-duplication.
+- `format-date` — placeholder fallback for null/empty/invalid input, valid ISO formatting.
+- `markdown` (`renderMarkdown`) — DOMPurify sanitization of `marked`'s output (script tags, inline
+  event handlers), safe-HTML passthrough. `marked` itself is mocked, since it ships ESM-only and
+  can't be transformed through `next/jest`'s default `transformIgnorePatterns`.
+- `image-file-to-data-url` — MIME/SVG rejection, resize + aspect-ratio preservation, JPEG
+  compression quality, canvas/FileReader failure paths. `FileReader`, `Image`, and `HTMLCanvasElement`
+  are faked, since jsdom doesn't implement real image decoding.
+- `article.schema` / `product.schema` — required fields, length limits, slug regex, status/category
+  enums, `minPrice`/`maxPrice` cross-field validation, trimming behavior.
+- `article.mapper` — tag parsing/dedup, SEO title/description fallback to title/excerpt, round-trip
+  conversion.
+
+### Store and repository tests
+
+- `articleStore` / `productStore` — full CRUD (`list`, `listPublished`, `getById`, `create`,
+  `update`, `remove`, plus `duplicate` and `replaceAll` for articles), slug-conflict rejection,
+  atomic write-then-rename behavior, ENOENT seeding, malformed-JSON and schema-violation error
+  paths. The filesystem (`node:fs/promises`) is mocked.
+- `articleRepository` / `productRepository` — every method (`list`, `listPublished`, `getById`,
+  `create`, `update`, `duplicate`, `remove`, `exportJson`, `importJson` for articles), URL encoding
+  of ids/slugs, 404-to-null handling, server error message surfacing, and fallback error messages
+  when the error response body itself isn't parseable. `fetch` is mocked.
+
+### API route tests
+
 - `middleware` — session-cookie authorization, public read-path allowlisting (`?status=published`,
   `?slug=`), admin-page redirects, and 401 responses for unauthenticated API requests (articles and
   products).
-- `articleStore.replaceAll` — duplicate-slug and duplicate-id rejection, and atomic
-  write-then-rename behavior.
-- `articleRepository.importJson` — invalid JSON, schema validation failures, duplicate slug/id
-  rejection before the API call, and import-response shape validation.
+- `/api/admin/login` — missing/incorrect token, missing `ADMIN_TOKEN` server config, cookie flags
+  (`httpOnly`, `sameSite`, `secure` in production only), sign-out.
+- `/api/articles`, `/api/articles/[articleId]`, `/api/products`, `/api/products/[productId]` —
+  success paths, validation (400), not-found (404), slug conflicts (409), and unexpected-error (500)
+  paths for every handler. The store layer is mocked; `Request`/`Response` come from Node's native
+  Fetch API, so these run under `@jest-environment node`.
 
-Tests still to be added:
+### Component tests (React Testing Library)
 
-- Article schema validation.
-- Remaining `ArticleRepository` methods (`list`, `create`, `update`, `duplicate`, `remove`).
-- Remaining `articleStore` methods beyond `replaceAll` (slug-conflict handling on create/update).
-- Article API route behavior (slug conflicts, validation errors, not-found handling).
-- `/api/admin/login` route behavior (missing/incorrect token, cookie flags).
-- Product schema validation.
-- Product repository behavior.
-- Product API route behavior (slug conflicts, validation errors, not-found handling).
-- Duplicate product-slug rejection.
-- Product price-range validation.
-- Published-product filtering.
-- Featured-product sorting.
-- Product editor interactions, including image upload.
-- Product administration filtering.
-- Public storefront search and sorting.
+- `ArticleEditorPage` — required-field errors, slug auto-generation and manual override, invalid
+  slug format, submit success/failure, notFound on a missing article, publish-only public-page
+  link, SEO panel fallback text, live preview rendering.
+- `ProductEditorPage` — required-field errors, slug auto-generation, `maxPrice < minPrice`
+  validation, pasted image URL preview, image upload success/failure (including a hidden
+  `<input type="file">`, which needs `fireEvent.change` rather than `user-event`'s `upload()`),
+  submit success/failure, featured-checkbox toggle, edit-mode load/notFound/update.
+- `ArticleListPage` — empty state, search filtering (title/author/slug/tags), status filtering,
+  publish-only public-page link, delete with confirm/cancel, duplicate-and-navigate, import
+  success/failure notices, dismissing a notice. jsdom's `File` has no `.text()` method, so the
+  import tests polyfill it via `FileReader`.
+
+Not yet covered: `ProductListPage`, `TravelItemsPage`, `ArticlePreviewPage`,
+`PublicArticleListPage`, `PublicArticlePage`, and the presentational `PageHeader`/`StatusBadge`
+components (indirectly exercised through the pages above, but with no dedicated test file). No
+end-to-end (Playwright) tests exist yet.
 
 Run tests with:
 
@@ -560,7 +592,16 @@ Optional Git hooks under `scripts/hooks/` provide fast, local feedback before ch
   reflects exactly what is about to be pushed), then runs the full `npm run ci` pipeline (format
   check, lint, typecheck, test coverage, build).
 
-Install them once after cloning:
+These are configured automatically. A `postinstall` script (`scripts/check-hooks.sh`) runs after
+every `npm install` and points Git at `scripts/hooks/` via `core.hooksPath` if it isn't already set.
+This runs on install rather than being enforced from within a hook itself, since a pre-push check
+can't run at all until hooks are installed in the first place — `npm install` is the one step that
+reliably closes that gap. If `core.hooksPath` is already set to something else on purpose (for
+example, a developer's own tooling), `check-hooks.sh` leaves it untouched and prints a note instead
+of overriding it. It stays silent in CI and in directories that aren't a Git checkout.
+
+To (re)configure the hooks by hand — for example after `npm install --ignore-scripts`, or if
+`core.hooksPath` gets reset — run:
 
 ```bash
 npm run hooks:install
@@ -655,7 +696,8 @@ Planned or reasonable next steps include:
 - Add real inquiry-cart behavior.
 - Add favorites persistence.
 - Add language and currency support.
-- Add repository, schema, API route, and UI tests for both domains.
+- Add component tests for `ProductListPage`, `TravelItemsPage`, and the remaining public pages.
+- Add Playwright end-to-end coverage for the core login → create → publish → public-page flows.
 - Add CI coverage thresholds and PR-level coverage reporting through Codecov.
 - Validate exact staged/pushed Git content in an isolated worktree for stronger hook guarantees,
   rather than relying on a clean working tree at push time.
@@ -667,6 +709,11 @@ relies on polling and focus refetch instead of the `storage` event.
 **Completed (Phase 1.6):** Admin pages and write-capable article/product API routes are now
 protected by a shared `ADMIN_TOKEN` session cookie enforced in `src/middleware.ts`. See
 [Administration Authentication](#administration-authentication).
+
+**Completed (Phase 1.7):** Test coverage was raised from roughly 11% to over 80% statements, adding
+unit tests for schemas/mappers/utilities, full store and repository coverage for both domains, tests
+for every API route handler, and React Testing Library component tests for the article/product
+editors and the article list page. See [Testing](#testing) for details.
 
 ---
 
@@ -720,10 +767,12 @@ scripts/
 ├─ hooks/
 │  ├─ pre-commit          # lint-staged (staged Prettier + ESLint) + secret scan
 │  └─ pre-push            # Reject dirty worktree, then full `npm run ci`
-└─ setup-hooks.sh         # Configures core.hooksPath
+├─ check-hooks.sh         # postinstall: auto-configures core.hooksPath if not already set
+└─ setup-hooks.sh         # Configures core.hooksPath (also runnable manually via hooks:install)
 
 src/
 ├─ middleware.ts          # Admin session-cookie auth guard for /admin/* and write-capable APIs
+├─ middleware.test.ts
 ├─ app/                   # Next.js App Router routes and app setup
 │  ├─ layout.tsx
 │  ├─ providers.tsx
@@ -754,15 +803,20 @@ src/
 │  ├─ api/
 │  │  ├─ admin/
 │  │  │  └─ login/
-│  │  │     └─ route.ts
+│  │  │     ├─ route.ts
+│  │  │     └─ route.test.ts
 │  │  ├─ articles/
 │  │  │  ├─ route.ts
+│  │  │  ├─ route.test.ts
 │  │  │  └─ [articleId]/
-│  │  │     └─ route.ts
+│  │  │     ├─ route.ts
+│  │  │     └─ route.test.ts
 │  │  └─ products/
 │  │     ├─ route.ts
+│  │     ├─ route.test.ts
 │  │     └─ [productId]/
-│  │        └─ route.ts
+│  │        ├─ route.ts
+│  │        └─ route.test.ts
 │  ├─ articles/
 │  │  ├─ page.tsx
 │  │  └─ [slug]/
@@ -772,13 +826,19 @@ src/
 │
 ├─ features/              # Page-scoped feature implementations
 │  ├─ article-editor/
-│  │  └─ ui/article-editor-page.tsx
+│  │  └─ ui/
+│  │     ├─ article-editor-page.tsx
+│  │     └─ article-editor-page.test.tsx
 │  ├─ article-list/
-│  │  └─ ui/article-list-page.tsx
+│  │  └─ ui/
+│  │     ├─ article-list-page.tsx
+│  │     └─ article-list-page.test.tsx
 │  ├─ article-preview/
 │  │  └─ ui/article-preview-page.tsx
 │  ├─ product-editor/
-│  │  └─ ui/product-editor-page.tsx
+│  │  └─ ui/
+│  │     ├─ product-editor-page.tsx
+│  │     └─ product-editor-page.test.tsx
 │  ├─ product-list/
 │  │  └─ ui/product-list-page.tsx
 │  ├─ public-article-list/
@@ -795,21 +855,29 @@ src/
 ├─ shared/
 │  ├─ api/
 │  │  ├─ article.mapper.ts
+│  │  ├─ article.mapper.test.ts
 │  │  ├─ article.queries.ts
 │  │  ├─ article.repository.ts
 │  │  ├─ article.repository.test.ts
 │  │  ├─ article.schema.ts
+│  │  ├─ article.schema.test.ts
 │  │  ├─ article.store.server.ts
 │  │  ├─ article.store.server.test.ts
 │  │  ├─ product.queries.ts
 │  │  ├─ product.repository.ts
+│  │  ├─ product.repository.test.ts
 │  │  ├─ product.schema.ts
-│  │  └─ product.store.server.ts
+│  │  ├─ product.schema.test.ts
+│  │  ├─ product.store.server.ts
+│  │  └─ product.store.server.test.ts
 │  ├─ lib/
 │  │  ├─ format-date.ts
+│  │  ├─ format-date.test.ts
 │  │  ├─ generate-uuid.ts
 │  │  ├─ image-file-to-data-url.ts
+│  │  ├─ image-file-to-data-url.test.ts
 │  │  ├─ markdown.ts
+│  │  ├─ markdown.test.ts
 │  │  ├─ query-client.ts
 │  │  ├─ slugify.ts
 │  │  ├─ slugify.test.ts

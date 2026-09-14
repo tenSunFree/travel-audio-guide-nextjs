@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { articleRepository } from "./article.repository";
-import type { Article } from "./article.schema";
+import type { Article, ArticleFormValues } from "./article.schema";
 
 function makeArticle(overrides: Partial<Article> = {}): Article {
   const now = new Date().toISOString();
+
   return {
     id: randomUUID(),
     title: "測試文章",
@@ -22,18 +23,37 @@ function makeArticle(overrides: Partial<Article> = {}): Article {
   };
 }
 
+function makeFormValues(): ArticleFormValues {
+  return {
+    title: "測試文章",
+    slug: "test-article",
+    author: "Tester",
+    excerpt: "excerpt",
+    content: "這是一篇至少超過十個字的測試文章",
+    tagsText: "react",
+    status: "draft",
+    seoTitle: "",
+    seoDescription: "",
+  };
+}
+
 function fakeResponse(
   body: unknown,
-  init: { ok?: boolean; status?: number } = {},
+  init: { ok?: boolean; status?: number; jsonError?: Error } = {},
 ): Response {
   return {
     ok: init.ok ?? true,
     status: init.status ?? 200,
-    json: async () => body,
+    json: async () => {
+      if (init.jsonError) {
+        throw init.jsonError;
+      }
+      return body;
+    },
   } as unknown as Response;
 }
 
-describe("articleRepository.importJson", () => {
+describe("articleRepository", () => {
   const fetchMock = jest.fn();
 
   beforeEach(() => {
@@ -41,77 +61,279 @@ describe("articleRepository.importJson", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it("rejects invalid JSON without calling the API", async () => {
-    await expect(articleRepository.importJson("not json")).rejects.toThrow(
-      "匯入檔案不是合法 JSON",
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
+  describe("list", () => {
+    it("returns validated article list", async () => {
+      const articles = [makeArticle(), makeArticle()];
+      fetchMock.mockResolvedValue(fakeResponse(articles));
+
+      const result = await articleRepository.list();
+
+      expect(result).toEqual(articles);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles",
+        expect.objectContaining({ cache: "no-store" }),
+      );
+    });
+
+    it("throws server message on failure", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse({ message: "讀取失敗" }, { ok: false, status: 500 }),
+      );
+
+      await expect(articleRepository.list()).rejects.toThrow("讀取失敗");
+    });
+
+    it("uses fallback error if error response cannot be parsed", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse(null, {
+          ok: false,
+          status: 500,
+          jsonError: new Error("broken json"),
+        }),
+      );
+
+      await expect(articleRepository.list()).rejects.toThrow(
+        "API 請求失敗：500",
+      );
+    });
+
+    it("rejects invalid response schema", async () => {
+      fetchMock.mockResolvedValue(fakeResponse([{ invalid: true }]));
+
+      await expect(articleRepository.list()).rejects.toThrow();
+    });
   });
 
-  it("rejects a payload that fails article schema validation", async () => {
-    const invalid = [{ title: "missing required fields" }];
+  describe("listPublished", () => {
+    it("uses published endpoint", async () => {
+      fetchMock.mockResolvedValue(fakeResponse([]));
 
-    await expect(
-      articleRepository.importJson(JSON.stringify(invalid)),
-    ).rejects.toThrow();
-    expect(fetchMock).not.toHaveBeenCalled();
+      await articleRepository.listPublished();
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles?status=published",
+        expect.objectContaining({ cache: "no-store" }),
+      );
+    });
   });
 
-  it("rejects duplicate slugs before calling the API", async () => {
-    const articles = [
-      makeArticle({ slug: "same-slug" }),
-      makeArticle({ slug: "same-slug" }),
-    ];
+  describe("getById", () => {
+    it("returns article", async () => {
+      const article = makeArticle();
+      fetchMock.mockResolvedValue(fakeResponse(article));
 
-    await expect(
-      articleRepository.importJson(JSON.stringify(articles)),
-    ).rejects.toThrow("匯入資料包含重複網址代稱");
-    expect(fetchMock).not.toHaveBeenCalled();
+      await expect(articleRepository.getById(article.id)).resolves.toEqual(
+        article,
+      );
+    });
+
+    it("URL-encodes id", async () => {
+      fetchMock.mockResolvedValue(fakeResponse(null, { status: 404 }));
+
+      await articleRepository.getById("a/b c");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles/a%2Fb%20c",
+        expect.anything(),
+      );
+    });
+
+    it("returns null on 404", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse(null, { ok: false, status: 404 }),
+      );
+
+      await expect(articleRepository.getById("missing")).resolves.toBeNull();
+    });
+
+    it("throws server message on other errors", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse({ message: "文章讀取失敗" }, { ok: false, status: 500 }),
+      );
+
+      await expect(articleRepository.getById("1")).rejects.toThrow(
+        "文章讀取失敗",
+      );
+    });
   });
 
-  it("rejects duplicate ids before calling the API", async () => {
-    const sharedId = randomUUID();
-    const articles = [
-      makeArticle({ id: sharedId, slug: "slug-a" }),
-      makeArticle({ id: sharedId, slug: "slug-b" }),
-    ];
+  describe("getPublishedBySlug", () => {
+    it("URL-encodes slug", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse(null, { ok: false, status: 404 }),
+      );
 
-    await expect(
-      articleRepository.importJson(JSON.stringify(articles)),
-    ).rejects.toThrow("匯入資料包含重複文章 id");
-    expect(fetchMock).not.toHaveBeenCalled();
+      await articleRepository.getPublishedBySlug("hello world");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles?slug=hello%20world",
+        expect.anything(),
+      );
+    });
+
+    it("returns null on 404", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse(null, { ok: false, status: 404 }),
+      );
+
+      await expect(
+        articleRepository.getPublishedBySlug("missing"),
+      ).resolves.toBeNull();
+    });
   });
 
-  it("calls the import API and returns the validated count on success", async () => {
-    const articles = [makeArticle(), makeArticle()];
-    fetchMock.mockResolvedValue(fakeResponse({ count: 2 }));
+  describe("create", () => {
+    it("posts article form values", async () => {
+      const article = makeArticle();
+      fetchMock.mockResolvedValue(fakeResponse(article));
 
-    const count = await articleRepository.importJson(JSON.stringify(articles));
+      const values = makeFormValues();
+      const result = await articleRepository.create(values);
 
-    expect(count).toBe(2);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/articles?action=import",
-      expect.objectContaining({ method: "POST" }),
-    );
+      expect(result).toEqual(article);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(values),
+        }),
+      );
+    });
   });
 
-  it("rejects when the API response does not match the expected shape", async () => {
-    const articles = [makeArticle()];
-    fetchMock.mockResolvedValue(fakeResponse({ imported: "oops" }));
+  describe("update", () => {
+    it("puts article changes", async () => {
+      const article = makeArticle();
+      fetchMock.mockResolvedValue(fakeResponse(article));
 
-    await expect(
-      articleRepository.importJson(JSON.stringify(articles)),
-    ).rejects.toThrow();
+      const values = makeFormValues();
+      await articleRepository.update("article/id", values);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles/article%2Fid",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify(values),
+        }),
+      );
+    });
   });
 
-  it("surfaces the server error message when the API call fails", async () => {
-    const articles = [makeArticle()];
-    fetchMock.mockResolvedValue(
-      fakeResponse({ message: "伺服器錯誤" }, { ok: false, status: 500 }),
-    );
+  describe("duplicate", () => {
+    it("calls duplicate endpoint", async () => {
+      const article = makeArticle();
+      fetchMock.mockResolvedValue(fakeResponse(article));
 
-    await expect(
-      articleRepository.importJson(JSON.stringify(articles)),
-    ).rejects.toThrow("伺服器錯誤");
+      const result = await articleRepository.duplicate(article.id);
+
+      expect(result).toEqual(article);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles?action=duplicate",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ id: article.id }),
+        }),
+      );
+    });
+  });
+
+  describe("remove", () => {
+    it("calls DELETE", async () => {
+      fetchMock.mockResolvedValue(fakeResponse(undefined, { status: 204 }));
+
+      await articleRepository.remove("article/id");
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/articles/article%2Fid", {
+        method: "DELETE",
+      });
+    });
+
+    it("throws server error", async () => {
+      fetchMock.mockResolvedValue(
+        fakeResponse({ message: "刪除失敗" }, { ok: false, status: 500 }),
+      );
+
+      await expect(articleRepository.remove("id")).rejects.toThrow("刪除失敗");
+    });
+  });
+
+  describe("exportJson", () => {
+    it("exports formatted JSON", async () => {
+      const articles = [makeArticle()];
+      fetchMock.mockResolvedValue(fakeResponse(articles));
+
+      const result = await articleRepository.exportJson();
+
+      expect(result).toBe(JSON.stringify(articles, null, 2));
+    });
+  });
+
+  describe("importJson", () => {
+    it("rejects malformed JSON without API call", async () => {
+      await expect(articleRepository.importJson("not-json")).rejects.toThrow(
+        "匯入檔案不是合法 JSON",
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid article schema", async () => {
+      await expect(
+        articleRepository.importJson(
+          JSON.stringify([{ title: "missing fields" }]),
+        ),
+      ).rejects.toThrow();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects duplicate slugs", async () => {
+      const articles = [
+        makeArticle({ slug: "same" }),
+        makeArticle({ slug: "same" }),
+      ];
+
+      await expect(
+        articleRepository.importJson(JSON.stringify(articles)),
+      ).rejects.toThrow("匯入資料包含重複網址代稱");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects duplicate ids", async () => {
+      const id = randomUUID();
+      const articles = [
+        makeArticle({ id, slug: "a" }),
+        makeArticle({ id, slug: "b" }),
+      ];
+
+      await expect(
+        articleRepository.importJson(JSON.stringify(articles)),
+      ).rejects.toThrow("匯入資料包含重複文章 id");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("imports valid articles", async () => {
+      const articles = [makeArticle(), makeArticle()];
+      fetchMock.mockResolvedValue(fakeResponse({ count: 2 }));
+
+      await expect(
+        articleRepository.importJson(JSON.stringify(articles)),
+      ).resolves.toBe(2);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/articles?action=import",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(articles),
+        }),
+      );
+    });
+
+    it("validates import API response", async () => {
+      const articles = [makeArticle()];
+      fetchMock.mockResolvedValue(fakeResponse({ imported: 1 }));
+
+      await expect(
+        articleRepository.importJson(JSON.stringify(articles)),
+      ).rejects.toThrow();
+    });
   });
 });
