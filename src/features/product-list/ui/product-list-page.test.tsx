@@ -100,7 +100,7 @@ describe("ProductListPage — listing and filtering", () => {
     await screen.findByText("旅行收納包");
 
     await user.type(
-      screen.getByPlaceholderText("搜尋商品名稱、分類或 slug"),
+      screen.getByPlaceholderText("搜尋商品名稱、分類、slug 或說明"),
       "水壺",
     );
 
@@ -118,7 +118,7 @@ describe("ProductListPage — listing and filtering", () => {
     await screen.findByText("商品甲");
 
     await user.type(
-      screen.getByPlaceholderText("搜尋商品名稱、分類或 slug"),
+      screen.getByPlaceholderText("搜尋商品名稱、分類、slug 或說明"),
       "special-slug",
     );
 
@@ -145,7 +145,7 @@ describe("ProductListPage — listing and filtering", () => {
     await screen.findByText("商品甲");
 
     await user.type(
-      screen.getByPlaceholderText("搜尋商品名稱、分類或 slug"),
+      screen.getByPlaceholderText("搜尋商品名稱、分類、slug 或說明"),
       "收納",
     );
 
@@ -163,7 +163,7 @@ describe("ProductListPage — listing and filtering", () => {
     await screen.findByText("商品甲");
 
     await user.type(
-      screen.getByPlaceholderText("搜尋商品名稱、分類或 slug"),
+      screen.getByPlaceholderText("搜尋商品名稱、分類、slug 或說明"),
       "獨特關鍵字",
     );
 
@@ -202,7 +202,8 @@ describe("ProductListPage — listing and filtering", () => {
 describe("ProductListPage — delete flow", () => {
   it("deletes a product after confirmation", async () => {
     const user = userEvent.setup();
-    listMock.mockResolvedValue([makeProduct({ name: "待刪除商品" })]);
+    const product = makeProduct({ name: "待刪除商品" });
+    listMock.mockResolvedValue([product]);
     removeMock.mockResolvedValue(undefined);
     renderPage();
     await screen.findByText("待刪除商品");
@@ -211,6 +212,7 @@ describe("ProductListPage — delete flow", () => {
 
     expect(window.confirm).toHaveBeenCalledWith("確定刪除「待刪除商品」？");
     await waitFor(() => expect(removeMock).toHaveBeenCalled());
+    expect(removeMock.mock.calls[0][0]).toBe(product.id);
   });
 
   it("does not delete when confirmation is cancelled", async () => {

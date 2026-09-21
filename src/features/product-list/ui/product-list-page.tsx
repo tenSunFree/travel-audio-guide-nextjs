@@ -53,9 +53,9 @@ export function ProductListPage() {
         <label className="search-box">
           <Search size={17} />
           <input
+            placeholder="搜尋商品名稱、分類、slug 或說明"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜尋商品名稱、分類或 slug"
           />
         </label>
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
