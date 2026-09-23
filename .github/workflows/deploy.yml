@@ -1,0 +1,187 @@
+name: Deploy to Cloud Run
+
+# Deploy only after CI succeeds on main (PRs will not deploy).
+# Can also be triggered manually in GitHub Actions (workflow_dispatch).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Required for Workload Identity Federation
+
+# Allow only one deployment at a time; queue instead of cancel to avoid interrupting in-progress deployments
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SERVICE: travel-audio-guide-web
+  AR_REPOSITORY: web
+  IMAGE_NAME: web
+  # Cloud Run recommendation: pin secret version when injecting via env var, do not use latest
+  # (env vars are resolved when the instance starts).
+  # Rotation: add secret version 2 -> update this to "2" -> deploy via PR.
+  ADMIN_TOKEN_SECRET_VERSION: "1"
+
+jobs:
+  deploy:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+
+    defaults:
+      run:
+        shell: bash # Equivalent to bash -eo pipefail
+
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      DEPLOY_SA: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - name: Check required GitHub Variables
+        run: |
+          missing=0
+          for name in PROJECT_ID REGION WIF_PROVIDER DEPLOY_SA; do
+            if [ -z "${!name}" ]; then
+              echo "::error::GitHub Variable for ${name} is not set (Settings → Secrets and variables → Actions → Variables)."
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Checkout source code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPOSITORY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
+          docker build \
+            --label "org.opencontainers.image.revision=${IMAGE_TAG}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "${IMAGE}" \
+            .
+
+      - name: Push image
+        run: docker push "${IMAGE}"
+
+      # New revision receives no traffic initially; traffic is routed only after verification via dedicated tag URL,
+      # ensuring broken versions do not affect production traffic.
+      - name: Deploy candidate revision (no traffic)
+        run: |
+          REVISION_TAG="c${IMAGE_TAG:0:12}"
+          echo "REVISION_TAG=${REVISION_TAG}" >> "${GITHUB_ENV}"
+
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --region "${REGION}" \
+            --service-account "travel-audio-guide-run@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --update-secrets "ADMIN_TOKEN=ADMIN_TOKEN:${ADMIN_TOKEN_SECRET_VERSION}" \
+            --min-instances 0 \
+            --max-instances 1 \
+            --memory 512Mi \
+            --cpu 1 \
+            --port 8080 \
+            --no-traffic \
+            --tag "${REVISION_TAG}" \
+            --quiet
+
+          CANDIDATE_URL="$(
+            gcloud run services describe "${SERVICE}" --region "${REGION}" --format=json |
+              jq -r --arg tag "${REVISION_TAG}" '.status.traffic[] | select(.tag == $tag) | .url'
+          )"
+          if [ -z "${CANDIDATE_URL}" ] || [ "${CANDIDATE_URL}" = "null" ]; then
+            echo "::error::Could not resolve the tagged URL for ${REVISION_TAG}."
+            exit 1
+          fi
+          echo "CANDIDATE_URL=${CANDIDATE_URL}" >> "${GITHUB_ENV}"
+          echo "Candidate URL: ${CANDIDATE_URL}"
+
+      - name: Smoke test candidate
+        run: |
+          expect() {
+            local label="$1" want="$2" code=""
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "$@" || true)"
+              echo "${label}: attempt ${attempt} -> HTTP ${code} (want ${want})"
+              if [ "${code}" = "${want}" ]; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "::error::${label} failed: expected HTTP ${want}, got ${code}"
+            return 1
+          }
+
+          # 1) Public API is available (also verifies data/ is writable)
+          expect "public API" 200 "${CANDIDATE_URL}/api/articles?status=published"
+
+          # 2) ADMIN_TOKEN is injected: invalid token should return 401; missing token returns 500
+          expect "ADMIN_TOKEN injected" 401 \
+            --request POST \
+            --header "content-type: application/json" \
+            --data '{"token":"smoke-test-wrong-token"}' \
+            "${CANDIDATE_URL}/api/admin/login"
+
+      - name: Promote to production traffic
+        run: |
+          gcloud run services update-traffic "${SERVICE}" \
+            --region "${REGION}" \
+            --to-latest \
+            --remove-tags "${REVISION_TAG}"
+
+      - name: Verify production
+        run: |
+          SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
+          echo "SERVICE_URL=${SERVICE_URL}" >> "${GITHUB_ENV}"
+
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "${SERVICE_URL}/api/articles?status=published")"
+          echo "Production: HTTP ${code}"
+          if [ "${code}" != "200" ]; then
+            echo "::error::Production check failed (HTTP ${code}). Roll back with: gcloud run revisions list / update-traffic --to-revisions."
+            exit 1
+          fi
+
+          {
+            echo "### Deployed :rocket:"
+            echo
+            echo "- URL: ${SERVICE_URL}"
+            echo "- Image: \`${IMAGE}\`"
+            echo "- Secret: \`ADMIN_TOKEN\` version \`${ADMIN_TOKEN_SECRET_VERSION}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Clean up tag if candidate verification fails (production traffic was never routed)
+      - name: Clean up candidate tag
+        if: failure() && env.REVISION_TAG != ''
+        run: |
+          gcloud run services update-traffic "${SERVICE}" \
+            --region "${REGION}" \
+            --remove-tags "${REVISION_TAG}" || true
