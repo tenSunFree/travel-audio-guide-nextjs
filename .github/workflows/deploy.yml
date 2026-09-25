@@ -1,7 +1,7 @@
 name: Deploy to Cloud Run
 
 # Deploy only after CI succeeds on main (PRs will not deploy).
-# Can also be triggered manually from the GitHub Actions page (workflow_dispatch).
+# Can also be triggered manually from the GitHub Actions tab (workflow_dispatch).
 on:
   workflow_run:
     workflows: ["CI"]
@@ -13,7 +13,7 @@ permissions:
   contents: read
   id-token: write # Required for Workload Identity Federation
 
-# Allow only one deployment at a time; queue instead of cancel to avoid interrupting in-progress deployments
+# Only allow one deployment at a time; queue rather than cancel to avoid interrupting in-progress deployments
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -22,9 +22,9 @@ env:
   SERVICE: travel-audio-guide-web
   AR_REPOSITORY: web
   IMAGE_NAME: web
-  # Cloud Run recommendation: Pin the secret version when injecting via env vars; avoid 'latest'
-  # (env vars are resolved when the instance starts).
-  # Rotation: Add secret version 2 -> update this to "2" -> deploy via PR.
+  # Cloud Run recommendation: pin secret versions when injecting via env vars, avoid latest
+  # (env vars are resolved only when instances start).
+  # Rotation: create secret version 2 -> update this to "2" -> deploy via PR.
   ADMIN_TOKEN_SECRET_VERSION: "1"
 
 jobs:
@@ -32,9 +32,9 @@ jobs:
     name: Build, Push & Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # workflow_dispatch can be triggered on any branch from the GitHub UI;
-    # restrict manual runs to main so that unverified branches
-    # that haven't passed CI on main aren't deployed to production.
+    # workflow_dispatch allows manual runs on any branch from the GitHub UI;
+    # restrict execution to only manual runs triggered on main,
+    # preventing branches that haven't passed main CI from being deployed to production.
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -64,9 +64,9 @@ jobs:
           exit "${missing}"
 
       # If multiple CI runs complete out of commit order (e.g., re-running an older CI),
-      # an older workflow_run event might trigger after a newer deployment.
-      # Compare with current main HEAD here, and only proceed if it matches,
-      # preventing older commits from overwriting newer deployed versions.
+      # an older workflow_run event might trigger after a newer deployment has finished.
+      # Compare against the current HEAD of main, deploying only if it matches,
+      # preventing an older commit from overwriting an already deployed newer version.
       - name: Guard against out-of-order CI runs
         if: github.event_name != 'workflow_dispatch'
         env:
@@ -125,7 +125,7 @@ jobs:
         run: docker push "${IMAGE}"
 
       # Record the revision currently serving 100% traffic before deploying,
-      # so we can accurately roll back if candidate verification fails after rollout.
+      # so traffic can be rolled back accurately if verification fails after release.
       - name: Capture currently serving revision
         if: env.SKIP_DEPLOY != 'true'
         run: |
@@ -136,8 +136,8 @@ jobs:
           echo "PREVIOUS_REVISION=${PREVIOUS_REVISION}" >> "${GITHUB_ENV}"
           echo "Previously serving revision: ${PREVIOUS_REVISION:-<none, first deploy>}"
 
-      # Deploy candidate revision with "no traffic" first and verify via tagged URL before switching traffic,
-      # preventing broken versions from impacting production traffic.
+      # Deploy candidate revision with no traffic routed; verify via a dedicated tagged URL
+      # before promoting to prevent broken revisions from impacting production traffic.
       - name: Deploy candidate revision (no traffic)
         if: env.SKIP_DEPLOY != 'true'
         run: |
@@ -187,10 +187,10 @@ jobs:
             return 1
           }
 
-          # 1) Public API is accessible (also verifies data/ is writable)
+          # 1) Public API is available (also verifies data/ is writable)
           expect "public API" 200 "${CANDIDATE_URL}/api/articles?status=published"
 
-          # 2) ADMIN_TOKEN is injected: invalid token should return 401; returns 500 if not injected
+          # 2) ADMIN_TOKEN is injected: invalid token should return 401; missing token returns 500
           expect "ADMIN_TOKEN injected" 401 \
             --request POST \
             --header "content-type: application/json" \
@@ -205,16 +205,23 @@ jobs:
             --to-latest \
             --remove-tags "${REVISION_TAG}"
 
-      # Production traffic has switched to the new revision; verify again here.
-      # On failure, automatically roll traffic back to the previously recorded revision,
-      # instead of leaving the broken revision serving production traffic.
+      # Production traffic has switched to the new revision; verify once more.
+      # If verification fails, traffic is automatically rolled back to the revision
+      # recorded prior to deployment, rather than leaving a broken version serving production.
       - name: Verify production
         if: env.SKIP_DEPLOY != 'true'
         run: |
           SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
           echo "SERVICE_URL=${SERVICE_URL}" >> "${GITHUB_ENV}"
 
-          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "${SERVICE_URL}/api/articles?status=published")"
+          # If curl fails (timeout, connection refused, etc.), it returns a non-zero exit code.
+          # Under `bash -e`, an unhandled command substitution failure aborts the step immediately,
+          # skipping the rollback logic below and leaving the broken revision serving 100% traffic.
+          # Using if/else normalizes curl failures to "000" so connection errors and non-200 responses
+          # follow the same rollback path without noisy duplicate exit codes in logs.
+          if ! code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "${SERVICE_URL}/api/articles?status=published")"; then
+            code="000"
+          fi
           echo "Production: HTTP ${code}"
           if [ "${code}" != "200" ]; then
             echo "::error::Production check failed (HTTP ${code})."
@@ -237,8 +244,8 @@ jobs:
             echo "- Secret: \`ADMIN_TOKEN\` version \`${ADMIN_TOKEN_SECRET_VERSION}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      # Reached if candidate verification or production verification fails:
-      # Clean up the candidate tag (traffic is already rolled back if "Verify production" failed; this is cleanup).
+      # Executed if candidate verification or production verification fails:
+      # clean up the candidate revision tag (traffic was already rolled back in the previous step if "Verify production" failed).
       - name: Clean up candidate tag
         if: failure() && env.REVISION_TAG != ''
         run: |
