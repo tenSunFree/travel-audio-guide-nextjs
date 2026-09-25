@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # scripts/gcp-bootstrap.sh
 #
-# One-time initialization for Google Cloud so .github/workflows/deploy.yml can deploy to Cloud Run.
+# One-time Google Cloud bootstrapping so that .github/workflows/deploy.yml can deploy to Cloud Run.
 # Idempotent: existing resources will be skipped and not overwritten.
 #
 # Usage:
 #   export PROJECT_ID="your-project-id"
-#   export GITHUB_REPO="OWNER/REPO"        # Must match GitHub case exactly
+#   export GITHUB_REPO="OWNER/REPO"        # Case must match GitHub exactly
 #   bash scripts/gcp-bootstrap.sh
 #
 # Optional environment variables:
-#   REGION (default asia-east1)   SERVICE (default travel-audio-guide-web)
-#   AR_REPO (default web)         SET_GITHUB_VARIABLES=true  -> write GitHub Variables automatically via gh CLI
+#   REGION (default: asia-east1)   SERVICE (default: travel-audio-guide-web)
+#   AR_REPO (default: web)         SET_GITHUB_VARIABLES=true  -> Write GitHub Variables automatically using gh CLI
 #
-# Requirements: gcloud installed and authenticated (gcloud auth login), billing enabled on project.
+# Prerequisites: gcloud installed and authenticated (gcloud auth login), billing enabled on project.
 
 set -euo pipefail
 
@@ -29,6 +29,7 @@ RUNTIME_SA_NAME="travel-audio-guide-run"
 DEPLOY_SA_NAME="github-deployer"
 WIF_POOL="github-pool"
 WIF_PROVIDER="github-provider"
+GITHUB_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 DEPLOY_SA="${DEPLOY_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -37,7 +38,7 @@ export CLOUDSDK_CORE_PROJECT="${PROJECT_ID}"
 
 step() { printf '\n==> %s\n' "$*"; }
 
-# Newly created IAM resources may take a few seconds to take effect; retry on failure
+# IAM resources may take a few seconds to propagate after creation; retry on failure
 retry() {
   local attempt
   for attempt in 1 2 3 4 5 6; do
@@ -89,10 +90,19 @@ done
 
 step "4/10 Secret Manager：${SECRET_NAME}（version ${SECRET_VERSION}）"
 if gcloud secrets describe "${SECRET_NAME}" >/dev/null 2>&1; then
-  echo "已存在，略過（不會覆蓋既有 token）"
+  echo "secret 已存在，略過建立（不會覆蓋既有 token）"
+  # deploy.yml pins SECRET_VERSION (default "1"). If this version is disabled or deleted during rotation,
+  # Cloud Run will fail at instance startup due to missing secret, so check it here beforehand.
+  VERSION_STATE="$(gcloud secrets versions describe "${SECRET_VERSION}" \
+    --secret="${SECRET_NAME}" --format='value(state)' 2>/dev/null || echo "MISSING")"
+  if [ "${VERSION_STATE}" != "ENABLED" ]; then
+    echo "::warning:: ${SECRET_NAME} version ${SECRET_VERSION} 狀態是 ${VERSION_STATE}（非 ENABLED）。"
+    echo "deploy.yml 的 ADMIN_TOKEN_SECRET_VERSION 必須指向一個 ENABLED 的版本，否則部署時 Cloud Run 會啟動失敗。"
+    echo "請執行：gcloud secrets versions list ${SECRET_NAME}，並把 deploy.yml 的版本號改成目前 ENABLED 的版本。"
+  fi
 else
   # Create via pipe: avoids writing to disk, and tr -d '\n' ensures no trailing newline
-  # (token is compared against login passwords/cookie values; an extra newline causes login to always fail)
+  # (token is used as cookie value and compared against login password; an extra newline causes auth failure)
   openssl rand -hex 24 | tr -d '\n' | gcloud secrets create "${SECRET_NAME}" \
     --replication-policy=automatic \
     --data-file=-
@@ -107,8 +117,8 @@ step "6/10 建立 Cloud Run service（只在不存在時，用範例 image 佔�
 if gcloud run services describe "${SERVICE}" --region="${REGION}" >/dev/null 2>&1; then
   echo "service 已存在，略過（避免把正式 image 蓋回 hello）"
 else
-  # Bind pinned secret here: Cloud Run checks Runtime SA permissions during deploy,
-  # exposing IAM issues during initialization (under your account) rather than in CI.
+  # Bind the pinned secret here: Cloud Run checks Runtime SA permissions during deploy,
+  # exposing IAM issues during bootstrap (under your account) rather than later in CI.
   retry gcloud run deploy "${SERVICE}" \
     --image="us-docker.pkg.dev/cloudrun/container/hello" \
     --region="${REGION}" \
@@ -143,19 +153,25 @@ else
     --location=global --display-name="GitHub Actions"
 fi
 
-ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository"
-ATTRIBUTE_CONDITION="assertion.repository=='${GITHUB_REPO}'"
+# attribute.repository restricts access to this repository; attribute_condition adds ref check
+# to allow only workflows running on the main branch to exchange tokens for Deploy SA.
+# This prevents workflows with id-token: write on other branches from acquiring deployment permissions.
+ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
+ATTRIBUTE_CONDITION="assertion.repository=='${GITHUB_REPO}' && assertion.ref=='refs/heads/main'"
 if gcloud iam workload-identity-pools providers describe "${WIF_PROVIDER}" \
   --location=global --workload-identity-pool="${WIF_POOL}" >/dev/null 2>&1; then
-  echo "provider 已存在，同步 attribute condition"
+  echo "provider 已存在，同步 issuer / attribute condition"
+  # Explicitly specify --issuer-uri: if an existing provider was manually changed to another issuer,
+  # this resets it to GitHub OIDC, preventing other issuers that can forge repository claims from using this binding.
   gcloud iam workload-identity-pools providers update-oidc "${WIF_PROVIDER}" \
     --location=global --workload-identity-pool="${WIF_POOL}" \
+    --issuer-uri="${GITHUB_OIDC_ISSUER}" \
     --attribute-mapping="${ATTRIBUTE_MAPPING}" \
     --attribute-condition="${ATTRIBUTE_CONDITION}"
 else
   retry gcloud iam workload-identity-pools providers create-oidc "${WIF_PROVIDER}" \
     --location=global --workload-identity-pool="${WIF_POOL}" \
-    --issuer-uri="https://token.actions.githubusercontent.com" \
+    --issuer-uri="${GITHUB_OIDC_ISSUER}" \
     --attribute-mapping="${ATTRIBUTE_MAPPING}" \
     --attribute-condition="${ATTRIBUTE_CONDITION}"
 fi

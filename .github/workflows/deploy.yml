@@ -1,7 +1,7 @@
 name: Deploy to Cloud Run
 
 # Deploy only after CI succeeds on main (PRs will not deploy).
-# Can also be triggered manually in GitHub Actions (workflow_dispatch).
+# Can also be triggered manually from the GitHub Actions page (workflow_dispatch).
 on:
   workflow_run:
     workflows: ["CI"]
@@ -22,9 +22,9 @@ env:
   SERVICE: travel-audio-guide-web
   AR_REPOSITORY: web
   IMAGE_NAME: web
-  # Cloud Run recommendation: pin secret version when injecting via env var, do not use latest
+  # Cloud Run recommendation: Pin the secret version when injecting via env vars; avoid 'latest'
   # (env vars are resolved when the instance starts).
-  # Rotation: add secret version 2 -> update this to "2" -> deploy via PR.
+  # Rotation: Add secret version 2 -> update this to "2" -> deploy via PR.
   ADMIN_TOKEN_SECRET_VERSION: "1"
 
 jobs:
@@ -32,8 +32,11 @@ jobs:
     name: Build, Push & Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # workflow_dispatch can be triggered on any branch from the GitHub UI;
+    # restrict manual runs to main so that unverified branches
+    # that haven't passed CI on main aren't deployed to production.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push')
 
@@ -60,13 +63,38 @@ jobs:
           done
           exit "${missing}"
 
+      # If multiple CI runs complete out of commit order (e.g., re-running an older CI),
+      # an older workflow_run event might trigger after a newer deployment.
+      # Compare with current main HEAD here, and only proceed if it matches,
+      # preventing older commits from overwriting newer deployed versions.
+      - name: Guard against out-of-order CI runs
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_MAIN_SHA="$(
+            curl -sS --fail \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/main" |
+              jq -r '.sha'
+          )"
+          echo "This run's commit : ${IMAGE_TAG}"
+          echo "Current main HEAD  : ${CURRENT_MAIN_SHA}"
+          if [ "${IMAGE_TAG}" != "${CURRENT_MAIN_SHA}" ]; then
+            echo "::notice::main has moved on to ${CURRENT_MAIN_SHA} since this CI run started; a newer run will deploy it, skipping this one."
+            echo "SKIP_DEPLOY=true" >> "${GITHUB_ENV}"
+          fi
+
       - name: Checkout source code
+        if: env.SKIP_DEPLOY != 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
 
       - name: Authenticate to Google Cloud
+        if: env.SKIP_DEPLOY != 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           project_id: ${{ env.PROJECT_ID }}
@@ -74,12 +102,15 @@ jobs:
           service_account: ${{ env.DEPLOY_SA }}
 
       - name: Set up gcloud
+        if: env.SKIP_DEPLOY != 'true'
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - name: Configure Docker for Artifact Registry
+        if: env.SKIP_DEPLOY != 'true'
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
       - name: Build image
+        if: env.SKIP_DEPLOY != 'true'
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPOSITORY}/${IMAGE_NAME}:${IMAGE_TAG}"
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
@@ -90,11 +121,25 @@ jobs:
             .
 
       - name: Push image
+        if: env.SKIP_DEPLOY != 'true'
         run: docker push "${IMAGE}"
 
-      # New revision receives no traffic initially; traffic is routed only after verification via dedicated tag URL,
-      # ensuring broken versions do not affect production traffic.
+      # Record the revision currently serving 100% traffic before deploying,
+      # so we can accurately roll back if candidate verification fails after rollout.
+      - name: Capture currently serving revision
+        if: env.SKIP_DEPLOY != 'true'
+        run: |
+          PREVIOUS_REVISION="$(
+            gcloud run services describe "${SERVICE}" --region "${REGION}" --format=json 2>/dev/null |
+              jq -r '.status.traffic[]? | select(.percent == 100) | .revisionName' | head -n1
+          )"
+          echo "PREVIOUS_REVISION=${PREVIOUS_REVISION}" >> "${GITHUB_ENV}"
+          echo "Previously serving revision: ${PREVIOUS_REVISION:-<none, first deploy>}"
+
+      # Deploy candidate revision with "no traffic" first and verify via tagged URL before switching traffic,
+      # preventing broken versions from impacting production traffic.
       - name: Deploy candidate revision (no traffic)
+        if: env.SKIP_DEPLOY != 'true'
         run: |
           REVISION_TAG="c${IMAGE_TAG:0:12}"
           echo "REVISION_TAG=${REVISION_TAG}" >> "${GITHUB_ENV}"
@@ -125,6 +170,7 @@ jobs:
           echo "Candidate URL: ${CANDIDATE_URL}"
 
       - name: Smoke test candidate
+        if: env.SKIP_DEPLOY != 'true'
         run: |
           expect() {
             local label="$1" want="$2" code=""
@@ -141,10 +187,10 @@ jobs:
             return 1
           }
 
-          # 1) Public API is available (also verifies data/ is writable)
+          # 1) Public API is accessible (also verifies data/ is writable)
           expect "public API" 200 "${CANDIDATE_URL}/api/articles?status=published"
 
-          # 2) ADMIN_TOKEN is injected: invalid token should return 401; missing token returns 500
+          # 2) ADMIN_TOKEN is injected: invalid token should return 401; returns 500 if not injected
           expect "ADMIN_TOKEN injected" 401 \
             --request POST \
             --header "content-type: application/json" \
@@ -152,13 +198,18 @@ jobs:
             "${CANDIDATE_URL}/api/admin/login"
 
       - name: Promote to production traffic
+        if: env.SKIP_DEPLOY != 'true'
         run: |
           gcloud run services update-traffic "${SERVICE}" \
             --region "${REGION}" \
             --to-latest \
             --remove-tags "${REVISION_TAG}"
 
+      # Production traffic has switched to the new revision; verify again here.
+      # On failure, automatically roll traffic back to the previously recorded revision,
+      # instead of leaving the broken revision serving production traffic.
       - name: Verify production
+        if: env.SKIP_DEPLOY != 'true'
         run: |
           SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
           echo "SERVICE_URL=${SERVICE_URL}" >> "${GITHUB_ENV}"
@@ -166,7 +217,15 @@ jobs:
           code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 "${SERVICE_URL}/api/articles?status=published")"
           echo "Production: HTTP ${code}"
           if [ "${code}" != "200" ]; then
-            echo "::error::Production check failed (HTTP ${code}). Roll back with: gcloud run revisions list / update-traffic --to-revisions."
+            echo "::error::Production check failed (HTTP ${code})."
+            if [ -n "${PREVIOUS_REVISION:-}" ]; then
+              echo "Rolling back traffic to ${PREVIOUS_REVISION} (100%)."
+              gcloud run services update-traffic "${SERVICE}" \
+                --region "${REGION}" \
+                --to-revisions "${PREVIOUS_REVISION}=100" || true
+            else
+              echo "::warning::No previous revision recorded (first deploy?) — cannot auto roll back. Check manually with: gcloud run revisions list."
+            fi
             exit 1
           fi
 
@@ -178,7 +237,8 @@ jobs:
             echo "- Secret: \`ADMIN_TOKEN\` version \`${ADMIN_TOKEN_SECRET_VERSION}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      # Clean up tag if candidate verification fails (production traffic was never routed)
+      # Reached if candidate verification or production verification fails:
+      # Clean up the candidate tag (traffic is already rolled back if "Verify production" failed; this is cleanup).
       - name: Clean up candidate tag
         if: failure() && env.REVISION_TAG != ''
         run: |
