@@ -1,0 +1,27 @@
+# Version control / CI
+.git
+.github
+.coderabbit.yaml
+
+# Dependencies and build artifacts (re-installed and built in container)
+node_modules
+.next
+out
+coverage
+*.tsbuildinfo
+
+# Local data and secrets: never include in image
+data
+.env
+.env.*
+!.env.example
+
+# Other unnecessary files
+Dockerfile
+.dockerignore
+*.md
+scripts/hooks
+.vscode
+.idea
+.DS_Store
+*.log
