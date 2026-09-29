@@ -10,6 +10,7 @@
 [![Articles Storage](https://img.shields.io/badge/Articles-Server%20JSON%20API-2E8B57)](#data-storage)
 [![Products Storage](https://img.shields.io/badge/Products-Server%20JSON%20API-2E8B57)](#data-storage)
 [![CI](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml/badge.svg)](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml)
+[![Deploy](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/deploy.yml/badge.svg)](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/deploy.yml)
 [![codecov](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs/graph/badge.svg)](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs)
 [![CodeRabbit Reviews](https://img.shields.io/badge/Code%20Review-CodeRabbit-FF6B35)](https://coderabbit.ai)
 
@@ -17,8 +18,7 @@
 
 ## Introduction
 
-`travel-audio-guide-nextjs` is a travel content and product catalog prototype built with Next.js App
-Router, React, TypeScript, TanStack Query, React Hook Form, and Zod.
+`travel-audio-guide-nextjs` is a travel content and product catalog prototype built with Next.js, React, and TypeScript, using the App Router architecture along with TanStack Query, React Hook Form, and Zod.
 
 While the planned Go/PostgreSQL backend is still in development, both domains use the same
 server-side persistence pattern:
@@ -239,7 +239,8 @@ Current limitations (both domains):
 - Suitable for a single-instance development environment only; the in-process write queue does not
   protect against concurrent writes across multiple server processes or instances.
 - Storage is ephemeral on common serverless hosts (for example Cloud Run); redeploying or recycling
-  an instance can delete JSON files under `data/` unless they are mounted on durable storage.
+  an instance can delete JSON files under `data/` unless they are mounted on durable storage. See
+  [Deployment](#deployment) for how this is scoped on Cloud Run today.
 - Access control is a single shared `ADMIN_TOKEN` session cookie checked in middleware (see
   [Administration Authentication](#administration-authentication)), not per-user authentication or
   role-based access control.
@@ -324,6 +325,7 @@ development server appear without relying on `localStorage` or the browser `stor
   checks match exactly what is about to be committed.
 - **Gitleaks (optional)** — local secret scanning in the pre-commit hook, with a lightweight regex
   fallback when not installed.
+- **Docker + Cloud Run** — containerized production deployment; see [Deployment](#deployment).
 
 ---
 
@@ -347,7 +349,9 @@ DEV_ALLOWED_ORIGINS=192.168.0.49
 `ADMIN_TOKEN` is a shared secret that protects the administration interface and any write-capable
 article/product API request. It is required — `npm run dev` will start without it, but admin login
 attempts fail with a 500 until it is set. See
-[Administration Authentication](#administration-authentication) for how it is used.
+[Administration Authentication](#administration-authentication) for how it is used. In production
+(Cloud Run), it is supplied via Secret Manager instead of a `.env` file — see
+[Deployment](#deployment).
 
 `DEV_ALLOWED_ORIGINS` is a comma-separated list of hostnames or LAN IP addresses. It is read by
 `next.config.mjs` and passed to Next.js's `allowedDevOrigins` option, allowing devices on the same
@@ -617,7 +621,9 @@ Node version).
 
 ---
 
-## Continuous Integration
+## Continuous Integration and Deployment
+
+### Continuous Integration
 
 Every qualifying push to `main` (excluding changes limited to `**.md`, `docs/**`, or `.gitignore`)
 and every pull request runs a GitHub Actions workflow (`.github/workflows/ci.yml`) that performs:
@@ -633,6 +639,90 @@ GitHub Actions are pinned to specific commit SHAs (rather than floating version 
 supply-chain risk, with a version comment next to each pin for readability.
 
 Pull requests are additionally reviewed automatically by CodeRabbit.
+
+### Continuous Deployment
+
+Once CI succeeds on `main` (or on manual dispatch from `main`), a second workflow
+(`.github/workflows/deploy.yml`) builds and ships the app to Cloud Run:
+
+1. Build the production Docker image (see [Deployment](#deployment)) and push it to Artifact
+   Registry.
+2. Deploy it as a new Cloud Run revision with `--no-traffic`, tagged with the commit SHA, so it
+   receives zero production traffic while being verified.
+3. Smoke-test the tagged revision directly (public API returns `200`; an invalid admin token
+   returns `401`).
+4. Promote the revision to 100% production traffic only after the smoke test passes.
+5. Verify the live production URL once more after promotion. If that check fails, traffic is
+   automatically rolled back to the previously serving revision.
+
+A broken build should therefore never reach production traffic, and a bad revision that slips
+through the initial smoke test is rolled back automatically rather than left serving requests.
+
+---
+
+## Deployment
+
+The app is deployed as a container to [Cloud Run](https://cloud.google.com/run), authenticated from
+GitHub Actions via Workload Identity Federation — no long-lived Service Account JSON key is stored
+anywhere.
+
+### Deployment Files
+
+| File                           | Purpose                                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                   | Multi-stage build (`deps` / `builder` / `runner`), Node 22, produces a minimal non-root runtime image using Next.js `standalone` output |
+| `.dockerignore`                | Excludes `.git`, `node_modules`, `data/`, `.env*`, and other content that should never enter the image                                  |
+| `next.config.mjs`              | Sets `output: "standalone"` so the image only needs the pruned `.next/standalone` server, not the full `node_modules`                   |
+| `.github/workflows/deploy.yml` | The CD workflow described above                                                                                                         |
+| `scripts/gcp-bootstrap.sh`     | One-time, idempotent script that provisions all required GCP resources (see below)                                                      |
+
+### One-Time GCP Setup
+
+`scripts/gcp-bootstrap.sh` provisions everything the deploy workflow needs:
+
+- Enables the required GCP APIs (Cloud Run, Artifact Registry, Secret Manager, IAM).
+- Creates the Artifact Registry repository for container images.
+- Creates two separate service accounts — one for the GitHub Actions deploy identity, one for the
+  Cloud Run runtime identity — each with only the permissions it needs.
+- Creates the `ADMIN_TOKEN` secret in Secret Manager (a random value, if it doesn't already exist)
+  and grants the runtime service account read access to it.
+- Creates a placeholder Cloud Run service on first run, so IAM issues surface locally instead of in
+  CI.
+- Creates a Workload Identity Pool and OIDC Provider scoped to this repository's `main` branch, so
+  only workflows running on `main` in this repository can obtain deployment credentials.
+- Optionally writes the resulting configuration to GitHub Actions Variables (`GCP_PROJECT_ID`,
+  `GCP_REGION`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`) via the `gh` CLI.
+
+Run it once per GCP project:
+
+```bash
+export PROJECT_ID="your-gcp-project-id"
+export GITHUB_REPO="OWNER/REPO"
+SET_GITHUB_VARIABLES=true bash scripts/gcp-bootstrap.sh
+```
+
+It is safe to re-run; existing resources are detected and left untouched.
+
+### Secret Rotation
+
+`ADMIN_TOKEN` is injected into Cloud Run as an environment variable pinned to a specific Secret
+Manager version (`ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml`), not `latest`, per Cloud Run's
+recommendation for env-var-injected secrets. To rotate it:
+
+```bash
+openssl rand -hex 24 | tr -d '\n' | gcloud secrets versions add ADMIN_TOKEN --data-file=-
+```
+
+Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and deploy via a
+pull request. Once the new version is confirmed working, the previous secret version can be
+disabled.
+
+### Production Data Caveat
+
+Cloud Run's filesystem is ephemeral. As noted in [Data Storage](#data-storage), the JSON-backed
+`data/` store does not survive a redeploy or instance recycle on Cloud Run — this deployment target
+is scoped as a demo/portfolio deployment, not a durable production environment, pending the planned
+Go API + PostgreSQL backend (see [Related Backend](#related-backend)).
 
 ---
 
@@ -701,6 +791,8 @@ Planned or reasonable next steps include:
 - Add CI coverage thresholds and PR-level coverage reporting through Codecov.
 - Validate exact staged/pushed Git content in an isolated worktree for stronger hook guarantees,
   rather than relying on a clean working tree at push time.
+- Move production persistence off the ephemeral Cloud Run filesystem once the Go API + PostgreSQL
+  backend is connected (see [Deployment](#deployment)).
 
 **Completed (Phase 1.5):** Article storage has been migrated from browser `localStorage` to the same
 server JSON + API + repository pattern used by products. Cross-device sync for both domains now
@@ -714,6 +806,10 @@ protected by a shared `ADMIN_TOKEN` session cookie enforced in `src/middleware.t
 unit tests for schemas/mappers/utilities, full store and repository coverage for both domains, tests
 for every API route handler, and React Testing Library component tests for the article/product
 editors and the article list page. See [Testing](#testing) for details.
+
+**Completed (Phase 1.8):** Added a containerized Cloud Run deployment pipeline (Dockerfile,
+GitHub Actions CD with automatic rollback, and a one-time GCP bootstrap script) authenticated via
+Workload Identity Federation. See [Deployment](#deployment).
 
 ---
 
@@ -763,12 +859,21 @@ open-source or commercial project:
 > This is a high-level overview of the current repository, not an exhaustive listing.
 
 ```text
+Dockerfile                  # Multi-stage build for the Cloud Run production image
+.dockerignore                # Excludes .git, node_modules, data/, .env*, etc. from the image
+
 scripts/
 ├─ hooks/
 │  ├─ pre-commit          # lint-staged (staged Prettier + ESLint) + secret scan
 │  └─ pre-push            # Reject dirty worktree, then full `npm run ci`
 ├─ check-hooks.sh         # postinstall: auto-configures core.hooksPath if not already set
-└─ setup-hooks.sh         # Configures core.hooksPath (also runnable manually via hooks:install)
+├─ setup-hooks.sh         # Configures core.hooksPath (also runnable manually via hooks:install)
+└─ gcp-bootstrap.sh       # One-time, idempotent GCP setup for Cloud Run deployment
+
+.github/
+└─ workflows/
+   ├─ ci.yml              # format / lint / typecheck / test:coverage / build
+   └─ deploy.yml          # Build, push, deploy-with-verification, and rollback-on-failure
 
 src/
 ├─ middleware.ts          # Admin session-cookie auth guard for /admin/* and write-capable APIs
