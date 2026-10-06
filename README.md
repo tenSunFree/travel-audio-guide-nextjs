@@ -642,8 +642,8 @@ Pull requests are additionally reviewed automatically by CodeRabbit.
 
 ### Continuous Deployment
 
-Once CI succeeds on `main` (or on manual dispatch from `main`), a second workflow
-(`.github/workflows/deploy.yml`) builds and ships the app to Cloud Run:
+Once CI succeeds on `main`, a second workflow (`.github/workflows/deploy.yml`) builds and ships the
+app to Cloud Run:
 
 1. Build the production Docker image (see [Deployment](#deployment)) and push it to Artifact
    Registry.
@@ -652,11 +652,21 @@ Once CI succeeds on `main` (or on manual dispatch from `main`), a second workflo
 3. Smoke-test the tagged revision directly (public API returns `200`; an invalid admin token
    returns `401`).
 4. Promote the revision to 100% production traffic only after the smoke test passes.
-5. Verify the live production URL once more after promotion. If that check fails, traffic is
-   automatically rolled back to the previously serving revision.
+5. Verify the live production URL once more after promotion. If that check fails **and a
+   previously serving revision was recorded**, traffic is automatically rolled back to it.
 
 A broken build should therefore never reach production traffic, and a bad revision that slips
-through the initial smoke test is rolled back automatically rather than left serving requests.
+through the initial smoke test is rolled back automatically rather than left serving requests —
+with two exceptions worth knowing:
+
+- **Manual dispatch does not itself verify CI.** The workflow can also be triggered manually
+  (`workflow_dispatch`) from `main`, but that path only checks that the run is on `main` — it does
+  not re-check that CI passed for the current commit. It assumes branch protection keeps `main`
+  green; if `main` can be pushed to directly, or merged without a passing CI run, manual dispatch
+  can deploy an unverified commit.
+- **Automatic rollback needs a previous revision to roll back to.** On a first deployment, there is
+  no prior revision recorded. If verification fails on a first deploy, the workflow logs a warning
+  instead of rolling back, and recovery is manual (see [Rollback](#rollback)).
 
 ---
 
@@ -714,8 +724,35 @@ openssl rand -hex 24 | tr -d '\n' | gcloud secrets versions add ADMIN_TOKEN --da
 ```
 
 Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and deploy via a
-pull request. Once the new version is confirmed working, the previous secret version can be
-disabled.
+pull request.
+
+**Keep the previous secret version enabled**, even after the new version is confirmed working.
+Cloud Run resolves environment-variable secrets per revision at instance startup, and each
+previously deployed revision keeps referencing whichever version it was deployed with — if that
+version is later disabled, Cloud Run cannot start a new instance of that revision, including when
+rolling back to it. Only disable an old version once you are certain no revision that might still
+be rolled back to is pinned to it; in practice, for this project's traffic pattern, that is rarely
+worth doing.
+
+### Rollback
+
+If a deployment's production verification fails and a previous revision was recorded, the workflow
+rolls back automatically (see [Continuous Deployment](#continuous-deployment)). Two cases require
+manual action instead:
+
+- **First deployment fails verification.** There is no previous revision to roll back to; inspect
+  `gcloud run services logs read <SERVICE> --region <REGION>` and redeploy a fix.
+- **A later issue surfaces after a deployment was already marked successful** (for example, a bug
+  reported after the fact, rather than caught by the deploy workflow's own checks). Roll back
+  manually:
+
+```bash
+gcloud run revisions list --service <SERVICE> --region <REGION>
+gcloud run services update-traffic <SERVICE> --region <REGION> \
+  --to-revisions <REVISION>=100
+```
+
+The next successful deploy automatically returns to following the latest revision.
 
 ### Production Data Caveat
 
