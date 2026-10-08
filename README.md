@@ -723,8 +723,10 @@ recommendation for env-var-injected secrets. To rotate it:
 openssl rand -hex 24 | tr -d '\n' | gcloud secrets versions add ADMIN_TOKEN --data-file=-
 ```
 
-Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and deploy via a
-pull request.
+Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and submit that
+change as a pull request. Deployment only happens after the pull request is merged and CI succeeds
+on `main` (or via a manual `workflow_dispatch` run on `main`); opening the pull request alone does
+not deploy anything.
 
 **Keep the previous secret version enabled**, even after the new version is confirmed working.
 Cloud Run resolves environment-variable secrets per revision at instance startup, and each
