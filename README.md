@@ -11,6 +11,9 @@
 [![Products Storage](https://img.shields.io/badge/Products-Server%20JSON%20API-2E8B57)](#data-storage)
 [![CI](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml/badge.svg)](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/ci.yml)
 [![Deploy](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/deploy.yml/badge.svg)](https://github.com/tenSunFree/travel-audio-guide-nextjs/actions/workflows/deploy.yml)
+[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Deployed-4285F4?logo=googlecloud&logoColor=white)](#deployment)
+[![Docker](https://img.shields.io/badge/Docker-Container-2496ED?logo=docker&logoColor=white)](#deployment)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-travel.tensunlabs.com-2E8B57)](https://travel.tensunlabs.com)
 [![codecov](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs/graph/badge.svg)](https://codecov.io/gh/tenSunFree/travel-audio-guide-nextjs)
 [![CodeRabbit Reviews](https://img.shields.io/badge/Code%20Review-CodeRabbit-FF6B35)](https://coderabbit.ai)
 
@@ -438,9 +441,10 @@ in an httpOnly session cookie:
   protected admin page are redirected to `/admin/login`.
 
 This is a **Phase 1.5 stopgap** suitable for a single trusted administrator on a local or private
-network — it is not per-user authentication and has no roles, audit log, or token rotation. It is
-expected to be replaced by real session/user authentication once the Go API and PostgreSQL are
-connected (see [Future Development](#future-development)).
+network — it is not per-user authentication and has no roles or audit log. In production the token
+is rotated manually through Secret Manager (see [Secret Rotation](#secret-rotation)). It is expected
+to be replaced by real session/user authentication once the Go API and PostgreSQL are connected (see
+[Future Development](#future-development)).
 
 ---
 
@@ -717,16 +721,34 @@ It is safe to re-run; existing resources are detected and left untouched.
 
 `ADMIN_TOKEN` is injected into Cloud Run as an environment variable pinned to a specific Secret
 Manager version (`ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml`), not `latest`, per Cloud Run's
-recommendation for env-var-injected secrets. To rotate it:
+recommendation for env-var-injected secrets. To rotate it, create a new secret version. The value
+must not contain a trailing newline, or the login comparison will always fail.
+
+Bash (generates a random value):
 
 ```bash
 openssl rand -hex 24 | tr -d '\n' | gcloud secrets versions add ADMIN_TOKEN --data-file=-
 ```
 
+PowerShell (prompts for a value without echoing it, and writes it without a trailing newline):
+
+```powershell
+$secure = Read-Host "New ADMIN_TOKEN" -AsSecureString
+$token = [System.Net.NetworkCredential]::new("", $secure).Password
+$tmp = [System.IO.Path]::GetTempFileName()
+try {
+  [System.IO.File]::WriteAllText($tmp, $token, (New-Object System.Text.UTF8Encoding $false))
+  gcloud secrets versions add ADMIN_TOKEN "--data-file=$tmp"
+} finally {
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+}
+```
+
 Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and submit that
 change as a pull request. Deployment only happens after the pull request is merged and CI succeeds
 on `main` (or via a manual `workflow_dispatch` run on `main`); opening the pull request alone does
-not deploy anything.
+not deploy anything. After deployment, existing admin sessions are invalidated and administrators
+must sign in again.
 
 **Keep the previous secret version enabled**, even after the new version is confirmed working.
 Cloud Run resolves environment-variable secrets per revision at instance startup, and each

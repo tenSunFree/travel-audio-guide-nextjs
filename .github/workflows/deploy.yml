@@ -25,7 +25,7 @@ env:
   # Cloud Run recommendation: pin secret versions when injecting via env vars, avoid latest
   # (env vars are resolved only when instances start).
   # Rotation: create secret version 2 -> update this to "2" -> deploy via PR.
-  ADMIN_TOKEN_SECRET_VERSION: "1"
+  ADMIN_TOKEN_SECRET_VERSION: "2"
 
 jobs:
   deploy:
