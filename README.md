@@ -736,9 +736,12 @@ PowerShell (prompts for a value without echoing it, and writes it without a trai
 $secure = Read-Host "New ADMIN_TOKEN" -AsSecureString
 $token = [System.Net.NetworkCredential]::new("", $secure).Password
 $tmp = [System.IO.Path]::GetTempFileName()
-[System.IO.File]::WriteAllText($tmp, $token, (New-Object System.Text.UTF8Encoding $false))
-gcloud secrets versions add ADMIN_TOKEN "--data-file=$tmp"
-Remove-Item $tmp -Force
+try {
+  [System.IO.File]::WriteAllText($tmp, $token, (New-Object System.Text.UTF8Encoding $false))
+  gcloud secrets versions add ADMIN_TOKEN "--data-file=$tmp"
+} finally {
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+}
 ```
 
 Then update `ADMIN_TOKEN_SECRET_VERSION` in `deploy.yml` to the new version number and submit that
